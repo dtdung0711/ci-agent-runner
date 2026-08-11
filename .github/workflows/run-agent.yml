@@ -1,7 +1,7 @@
 name: Ephemeral Woodpecker Agent
 
 on:
-  workflow_dispatch: # Cho phép nhận lệnh kích hoạt từ Gitea Webhook
+  workflow_dispatch: # Bắt buộc phải có dòng này để khớp với URL trên
 
 jobs:
   run-agent:
