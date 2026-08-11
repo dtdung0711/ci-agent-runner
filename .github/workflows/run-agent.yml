@@ -1,13 +1,11 @@
 name: Ephemeral Woodpecker Agent
 
 on:
-  repository_dispatch:
-    types: [trigger-agent]
-  workflow_dispatch: # Cho phép bấm nút kích hoạt thủ công trên GitHub để test
+  workflow_dispatch: # Cho phép nhận lệnh kích hoạt từ Gitea Webhook
 
 jobs:
   run-agent:
-    runs-on: ubuntu-latest # Chạy trên máy x86_64 miễn phí cực nhanh của GitHub
+    runs-on: ubuntu-latest
 
     steps:
       - name: Start Ephemeral Woodpecker Agent
