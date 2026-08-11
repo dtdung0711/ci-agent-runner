@@ -13,6 +13,6 @@ jobs:
           docker run --rm \
             -e WOODPECKER_SERVER="${{ secrets.WOODPECKER_SERVER_HOST }}" \
             -e WOODPECKER_AGENT_SECRET="${{ secrets.WOODPECKER_AGENT_SECRET }}" \
-            -e WOODPECKER_ONE_SHOT=true \
+            -e WOODPECKER_AGENT_SINGLE_WORKFLOW=true \
             -v /var/run/docker.sock:/var/run/docker.sock \
             woodpeckerci/woodpecker-agent:v3
