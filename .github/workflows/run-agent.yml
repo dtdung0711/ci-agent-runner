@@ -1,0 +1,21 @@
+name: Ephemeral Woodpecker macOS Agent
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-agent:
+    runs-on: macos-latest
+
+    steps:
+      # Bật màn hình Remote Desktop (VNC) trên macOS
+      - name: Enable VNC GUI Remote Desktop
+        run: |
+          # 1. Bật tính năng Screen Sharing mặc định của macOS
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all
+          # 2. Đặt mật khẩu truy cập màn hình là "secret123"
+          sudo dscl . -passwd /Users/runner secret123
+          
+      # Mở đường truyền VNC qua ngrok hoặc tmate
+      - name: Setup SSH & VNC Tunnel
+        uses: mxschmitt/action-tmate@v3
