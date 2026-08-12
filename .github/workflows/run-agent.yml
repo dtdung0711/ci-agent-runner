@@ -15,5 +15,5 @@ jobs:
           WOODPECKER_AGENT_SINGLE_WORKFLOW: "true"
           WOODPECKER_BACKEND: "local" # Chạy trực tiếp trên macOS Host
         run: |
-          curl -sL <https://github.com/woodpecker-ci/woodpecker/releases/download/v3.17.0/woodpecker-agent_darwin_arm64.tar.gz> | tar -xz
+          curl -sL https://github.com/woodpecker-ci/woodpecker/releases/download/v3.17.0/woodpecker-agent_darwin_arm64.tar.gz | tar -xz
           ./woodpecker-agent
