@@ -1,0 +1,36 @@
+name: Test VNC Remote Desktop via Free Tunnel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vnc-test:
+    runs-on: macos-latest
+
+    steps:
+      # 1. Bật VNC Remote Desktop & Tự động mở khóa Màn hình Lock Screen
+      - name: Enable VNC & Unlock macOS Desktop
+        run: |
+          # Bật Remote Management
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -users runner
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw secret123
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
+
+          # Giữ màn hình không bị ngủ
+          caffeinate -u -t 3600 &
+
+          # Mở ứng dụng Finder
+          open -a Finder
+
+          # GIẢ LẬP GÕ PHÍM MỞ KHÓA MÀN HÌNH MÁY MAC
+          sleep 2
+          osascript -e 'tell application "System Events" to key code 123'
+          sleep 1
+          osascript -e 'tell application "System Events" to keystroke "secret123"'
+          osascript -e 'tell application "System Events" to key code 36'
+
+      # 2. Mở cổng VNC TCP bằng Pinggy
+      - name: Start Free VNC TCP Tunnel
+        run: |
+          echo "=== ĐANG MỞ CỔNG VNC TCP MIỄN PHÍ ==="
+          ssh -o StrictHostKeyChecking=no -p 443 -R 0:localhost:5900 tcp@a.pinggy.io
