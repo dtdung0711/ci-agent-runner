@@ -1,21 +1,28 @@
-name: Ephemeral Woodpecker macOS Agent
+name: Ephemeral Woodpecker Agent
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Bắt buộc phải có dòng này để khớp với URL trên
 
 jobs:
   run-agent:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Start Ephemeral Woodpecker macOS Agent
-        env:
-          WOODPECKER_SERVER: ${{ secrets.WOODPECKER_SERVER_HOST }}
-          WOODPECKER_AGENT_SECRET: ${{ secrets.WOODPECKER_AGENT_SECRET }}
-          WOODPECKER_AGENT_SINGLE_WORKFLOW: "true"
-          WOODPECKER_BACKEND: "local"
-          WOODPECKER_WORKSPACE_BASE: "/tmp/woodpecker" # Đặt thư mục làm việc vào /tmp có full quyền ghi
+      # BƯỚC MỚI THÊM: In cấu hình chi tiết của Máy ảo GitHub
+      - name: Inspect Runner Hardware Specs
         run: |
-          curl -sL https://github.com/woodpecker-ci/woodpecker/releases/download/v3.17.0/woodpecker-agent_darwin_arm64.tar.gz | tar -xz
-          # Thêm sudo -E để cấp quyền Root cho Agent tạo thư mục làm việc trên macOS
-          sudo -E ./woodpecker-agent
+          echo "=== 1. THÔNG SỐ CPU ==="
+          nproc
+          lscpu | grep "Model name\|CPU(s):\|Thread(s) per core:"
+          echo "=== 2. THÔNG SỐ BỘ NHỚ RAM ==="
+          free -h
+          echo "=== 3. DUNG LƯỢNG Ổ ĐĨA SSD ==="
+          df -h /
+      - name: Start Ephemeral Woodpecker Agent
+        run: |
+          docker run --rm \
+            -e WOODPECKER_SERVER="${{ secrets.WOODPECKER_SERVER_HOST }}" \
+            -e WOODPECKER_AGENT_SECRET="${{ secrets.WOODPECKER_AGENT_SECRET }}" \
+            -e WOODPECKER_AGENT_SINGLE_WORKFLOW=true \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            woodpeckerci/woodpecker-agent:v3
