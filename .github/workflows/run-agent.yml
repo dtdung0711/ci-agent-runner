@@ -8,7 +8,7 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      # 1. Bật VNC Remote Desktop + Kích hoạt giao diện màn hình macOS (Sửa lỗi màn hình đen)
+      # 1. Bật VNC Remote Desktop + Đánh thức màn hình Finder (Không killall loginwindow)
       - name: Enable VNC Remote Desktop
         run: |
           # Bật Remote Management
@@ -18,9 +18,9 @@ jobs:
           # Restart ARD Agent
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
           
-          # SỬA LỖI MÀN HÌNH ĐEN: Ép macOS đánh thức giao diện đồ họa loginwindow
-          sudo tccutil reset ScreenCapture
-          sudo killall loginwindow 2>/dev/null || true
+          # ĐÁNH THỨC MÀN HÌNH SAFE: Mở Finder và đánh thức màn hình mà KHÔNG logout làm tắt máy ảo
+          caffeinate -u -t 10 &
+          open -a Finder
 
       # 2. Mở cổng VNC TCP bằng Pinggy
       - name: Start Free VNC TCP Tunnel
