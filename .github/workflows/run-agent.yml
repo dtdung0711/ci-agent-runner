@@ -1,7 +1,7 @@
 name: Test VNC & Upterm Remote Desktop
 
 on:
-  workflow_dispatch: # Bấm Run workflow bằng tay trên GitHub
+  workflow_dispatch:
 
 jobs:
   vnc-test:
@@ -15,7 +15,13 @@ jobs:
           sudo sysadminctl -resetPasswordFor runner -newPassword secret123
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -client_settings -setvnclegacy -vnclegacy yes -client_settings -setvncpw -vnc-password secret123
 
-      # 2. Mở đường truyền kết nối bằng UPTERM (Không bao giờ bị lỗi 503 hay Connection Reset)
+      # 2. TỰ ĐỘNG TẠO SSH KEY TRÊN MÁY ẢO (Khắc phục dứt điểm lỗi Permission denied publickey)
+      - name: Generate SSH Key for Upterm
+        run: |
+          ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+          cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+
+      # 3. Mở đường truyền kết nối bằng UPTERM
       - name: Setup Upterm Debug Session
         uses: lhotari/action-upterm@v1
         with:
