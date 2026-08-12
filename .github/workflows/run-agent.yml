@@ -8,12 +8,21 @@ jobs:
     runs-on: macos-latest
 
     steps:
+      # BƯỚC 1: KIỂM TRA CLONE THỬ TỪ GITEA NAY TRÊN MÁY BÀN MACOS
+      - name: Test Clone Code From Gitea
+        run: |
+          echo "=== DANG KIEM TRA CLONE CODE TU GITEA ==="
+          git clone --depth 1 https://git.bug.io.vn/dtdung.07/HoaBinhUniMobileApp.git test-folder
+          echo "=== CAC FILE DA KEO VE THANH CONG ==="
+          cd test-folder && ls -lh
+
+      # BƯỚC 2: CHẠY AGENT
       - name: Start Ephemeral Woodpecker macOS Agent
         env:
           WOODPECKER_SERVER: ${{ secrets.WOODPECKER_SERVER_HOST }}
           WOODPECKER_AGENT_SECRET: ${{ secrets.WOODPECKER_AGENT_SECRET }}
           WOODPECKER_AGENT_SINGLE_WORKFLOW: "true"
-          WOODPECKER_BACKEND: "local" # ĐÃ SỬA CHÍNH XÁC THÀNH 'local'
+          WOODPECKER_BACKEND: "local"
         run: |
           curl -sL https://github.com/woodpecker-ci/woodpecker/releases/download/v3.17.0/woodpecker-agent_darwin_arm64.tar.gz | tar -xz
           ./woodpecker-agent
