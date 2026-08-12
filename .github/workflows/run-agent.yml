@@ -1,4 +1,4 @@
-name: Test VNC & Upterm Remote Desktop
+name: Test VNC Remote Desktop via Ngrok
 
 on:
   workflow_dispatch:
@@ -15,12 +15,10 @@ jobs:
           sudo sysadminctl -resetPasswordFor runner -newPassword secret123
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -client_settings -setvnclegacy -vnclegacy yes -client_settings -setvncpw -vnc-password secret123
 
-      # 2. Dọn dẹp key cũ để tránh câu hỏi Overwrite (y/n)
-      - name: Clean Old SSH Keys
-        run: rm -rf ~/.ssh/id_*
-
-      # 3. Mở đường truyền UPTERM Debug Session
-      - name: Setup Upterm Debug Session
-        uses: lhotari/action-upterm@v1
-        with:
-          limit-access-to-actor: false
+      # 2. Cài đặt và Mở đường truyền VNC Ngrok trực tiếp
+      - name: Start Ngrok VNC Tunnel
+        run: |
+          curl -sL https://bin.equinox.io/c/bNyA1xip6cv/ngrok-v3-stable-darwin-arm64.zip -o ngrok.zip
+          unzip ngrok.zip
+          ./ngrok config add-authtoken ${{ secrets.NGROK_AUTHTOKEN }}
+          ./ngrok tcp 5900
