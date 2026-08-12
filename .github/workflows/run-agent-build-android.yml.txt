@@ -1,0 +1,33 @@
+name: Ephemeral Woodpecker Agent
+
+on:
+  workflow_dispatch: # Bắt buộc phải có dòng này để khớp với URL trên
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+
+    steps:
+      # In cấu hình chi tiết của Máy ảo GitHub
+      - name: Inspect Runner Hardware Specs
+        run: |
+          echo "=== 1. THÔNG SỐ CPU ==="
+          nproc
+          lscpu | grep "Model name\|CPU(s):\|Thread(s) per core:"
+          echo "=== 2. THÔNG SỐ BỘ NHỚ RAM ==="
+          free -h
+          echo "=== 3. DUNG LƯỢNG Ổ ĐĨA SSD ==="
+          df -h /
+          echo "=== 4. TỐC ĐỘ MẠNG (PING / DOWNLOAD / UPLOAD) ==="
+          pip install --quiet --break-system-packages speedtest-cli 2>/dev/null || true
+          speedtest-cli --simple
+
+      # Khởi chạy Woodpecker Agent tạm thời kết nối về VPS (Tự tiêu hủy ngay khi build xong)
+      - name: Start Ephemeral Woodpecker Agent
+        run: |
+          docker run --rm \
+            -e WOODPECKER_SERVER="${{ secrets.WOODPECKER_SERVER_HOST }}" \
+            -e WOODPECKER_AGENT_SECRET="${{ secrets.WOODPECKER_AGENT_SECRET }}" \
+            -e WOODPECKER_AGENT_SINGLE_WORKFLOW=true \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            woodpeckerci/woodpecker-agent:v3
