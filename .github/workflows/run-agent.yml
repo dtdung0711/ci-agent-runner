@@ -8,6 +8,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # BƯỚC MỚI THÊM: In cấu hình chi tiết của Máy ảo GitHub
+      - name: Inspect Runner Hardware Specs
+        run: |
+          echo "=== 1. THÔNG SỐ CPU ==="
+          nproc
+          lscpu | grep "Model name\|CPU(s):\|Thread(s) per core:"
+          echo "=== 2. THÔNG SỐ BỘ NHỚ RAM ==="
+          free -h
+          echo "=== 3. DUNG LƯỢNG Ổ ĐĨA SSD ==="
+          df -h /
       - name: Start Ephemeral Woodpecker Agent
         run: |
           docker run --rm \
