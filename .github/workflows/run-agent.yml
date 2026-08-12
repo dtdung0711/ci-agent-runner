@@ -8,17 +8,19 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      # 1. Bật VNC Remote Desktop chuẩn cú pháp Apple kickstart
+      # 1. Bật VNC Remote Desktop + Kích hoạt giao diện màn hình macOS (Sửa lỗi màn hình đen)
       - name: Enable VNC Remote Desktop
         run: |
-          # Bật Remote Management cấp quyền cho user runner
+          # Bật Remote Management
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -users runner
-          
-          # Đặt mật khẩu VNC là secret123 (Dùng cờ chuẩn -clientopts -vncpw)
+          # Đặt mật khẩu VNC là secret123
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw secret123
-          
-          # Khởi động lại ARD Agent
+          # Restart ARD Agent
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
+          
+          # SỬA LỖI MÀN HÌNH ĐEN: Ép macOS đánh thức giao diện đồ họa loginwindow
+          sudo tccutil reset ScreenCapture
+          sudo killall loginwindow 2>/dev/null || true
 
       # 2. Mở cổng VNC TCP bằng Pinggy
       - name: Start Free VNC TCP Tunnel
