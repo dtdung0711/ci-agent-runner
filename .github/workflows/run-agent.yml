@@ -1,4 +1,4 @@
-name: Test VNC Remote Desktop via Ngrok
+name: Test VNC Remote Desktop via Free Tunnel
 
 on:
   workflow_dispatch:
@@ -15,9 +15,8 @@ jobs:
           sudo sysadminctl -resetPasswordFor runner -newPassword secret123
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -client_settings -setvnclegacy -vnclegacy yes -client_settings -setvncpw -vnc-password secret123
 
-      # 2. Cài đặt Ngrok qua Homebrew & Mở đường truyền VNC
-      - name: Start Ngrok VNC Tunnel
+      # 2. Mở đường truyền VNC bằng Pinggy (Miễn phí 100%, KHÔNG CẦN THẺ / KHÔNG CẦN TÀI KHOẢN)
+      - name: Start Free VNC Tunnel
         run: |
-          brew install --cask ngrok
-          ngrok config add-authtoken ${{ secrets.NGROK_AUTHTOKEN }}
-          ngrok tcp 5900
+          echo "=== ĐANG MỞ CỔNG VNC MIỄN PHÍ ==="
+          ssh -o StrictHostKeyChecking=no -p 443 -R 0:localhost:5900 a.pinggy.io
