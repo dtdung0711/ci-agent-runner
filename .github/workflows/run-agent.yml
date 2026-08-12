@@ -8,14 +8,18 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      # Bật màn hình Remote Desktop (VNC) trên macOS
-      - name: Enable VNC GUI Remote Desktop
+      # BƯỚC MỚI ĐÃ SỬA: Bật Screen Sharing VNC chuẩn cho macOS ARM64
+      - name: Enable VNC Remote Desktop
         run: |
-          # 1. Bật tính năng Screen Sharing mặc định của macOS
+          # 1. Bật tính năng Screen Sharing / Remote Management
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all
-          # 2. Đặt mật khẩu truy cập màn hình là "secret123"
-          sudo dscl . -passwd /Users/runner secret123
           
-      # Mở đường truyền VNC qua ngrok hoặc tmate
-      - name: Setup SSH & VNC Tunnel
+          # 2. Đổi mật khẩu user runner thành "secret123" bằng sysadminctl (không đòi pass cũ)
+          sudo sysadminctl -resetPasswordFor runner -newPassword secret123
+          
+          # 3. Đặt mật khẩu VNC trực tiếp là "secret123"
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -client_settings -setvnclegacy -vnclegacy yes -client_settings -setvncpw -vnc-password secret123
+
+      # Mở đường truyền kết nối SSH / Port Forwarding
+      - name: Setup tmate Session
         uses: mxschmitt/action-tmate@v3
