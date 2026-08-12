@@ -15,10 +15,9 @@ jobs:
           sudo sysadminctl -resetPasswordFor runner -newPassword secret123
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -client_settings -setvnclegacy -vnclegacy yes -client_settings -setvncpw -vnc-password secret123
 
-      # 2. Cài đặt và Mở đường truyền VNC Ngrok trực tiếp
+      # 2. Cài đặt Ngrok qua Homebrew & Mở đường truyền VNC
       - name: Start Ngrok VNC Tunnel
         run: |
-          curl -sL https://bin.equinox.io/c/bNyA1xip6cv/ngrok-v3-stable-darwin-arm64.zip -o ngrok.zip
-          unzip ngrok.zip
-          ./ngrok config add-authtoken ${{ secrets.NGROK_AUTHTOKEN }}
-          ./ngrok tcp 5900
+          brew install --cask ngrok
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTHTOKEN }}
+          ngrok tcp 5900
