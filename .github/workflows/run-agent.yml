@@ -8,14 +8,19 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      # 1. Bật tính năng Screen Sharing VNC cho macOS ARM64
+      # 1. Bật VNC Remote Desktop chuẩn cú pháp Apple kickstart
       - name: Enable VNC Remote Desktop
         run: |
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all
-          sudo sysadminctl -resetPasswordFor runner -newPassword secret123
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -client_settings -setvnclegacy -vnclegacy yes -client_settings -setvncpw -vnc-password secret123
+          # Bật Remote Management cấp quyền cho user runner
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -users runner
+          
+          # Đặt mật khẩu VNC là secret123 (Dùng cờ chuẩn -clientopts -vncpw)
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw secret123
+          
+          # Khởi động lại ARD Agent
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
 
-      # 2. Mở cổng VNC TCP 5900 bằng Pinggy (Chuẩn TCP Mode)
+      # 2. Mở cổng VNC TCP bằng Pinggy
       - name: Start Free VNC TCP Tunnel
         run: |
           echo "=== ĐANG MỞ CỔNG VNC TCP MIỄN PHÍ ==="
