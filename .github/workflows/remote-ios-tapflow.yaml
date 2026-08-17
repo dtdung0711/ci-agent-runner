@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       duration_minutes:
-        description: 'Thời gian duy trì Agent (phút)'
+        description: 'Thời gian giữ runner (phút)'
         required: false
         default: '120'
 
@@ -21,16 +21,15 @@ jobs:
         with:
           node-version: '22'
 
-      # 2. Khởi động Simulator iPhone 15
-      - name: Khởi động iPhone Simulator
+      # 2. Pre-boot iPhone 15 (Chạy ngầm, KHÔNG mở app Simulator)
+      - name: Khởi động trước iPhone 15
         run: |
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
           xcrun simctl boot "$UDID" || true
-          open -a Simulator
 
-      # 3. Cài đặt Tapflow và kết nối Agent về VPS
-      - name: Kết nối Tapflow Agent tới VPS Relay
+      # 3. Cài đặt Tapflow & chạy Agent chỉ cho iPhone 15
+      - name: Chạy Tapflow Agent
         env:
           TAPFLOW_RELAY_URL: ${{ secrets.TAPFLOW_RELAY_URL }}
           TAPFLOW_AGENT_TOKEN: ${{ secrets.TAPFLOW_AGENT_TOKEN }}
@@ -38,14 +37,13 @@ jobs:
           npm install -g tapflow
 
           echo "Đang kết nối Agent tới $TAPFLOW_RELAY_URL ..."
-          # Chạy agent kết nối về Relay server
-          tapflow agent start --relay "$TAPFLOW_RELAY_URL" --token "$TAPFLOW_AGENT_TOKEN" &
+          # Thêm --device "iPhone 15" để chỉ nhận 1 thiết bị, giảm tải CPU tối đa
+          tapflow agent start --relay "$TAPFLOW_RELAY_URL" --token "$TAPFLOW_AGENT_TOKEN" --device "iPhone 15" &
 
           MINUTES=${{ github.event.inputs.duration_minutes || 120 }}
           echo ""
           echo "========================================================================"
-          echo "🚀 Agent đã kết nối thành công về Relay VPS: $TAPFLOW_RELAY_URL"
-          echo "👉 Hãy truy cập Web Dashboard trên VPS của bạn để điều khiển thiết bị."
+          echo "🚀 Agent đã kết nối thành công về Relay!"
           echo "⏱️ Phiên làm việc sẽ giữ trong $MINUTES phút..."
           echo "========================================================================"
           echo ""
