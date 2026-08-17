@@ -24,32 +24,35 @@ jobs:
           xcrun simctl boot "$UDID" || true
           open -a Simulator
 
-      # 3. Cài đặt idb-companion, fb-idb, simmer và chạy server
+      # 3. Kích hoạt IDB Companion, Simmer & Cloudflare Tunnel
       - name: Chạy Simmer & Mở Cloudflare Tunnel
         run: |
-          # 3.1 Bật chế độ xuất log real-time không đệm
           export PYTHONUNBUFFERED=1
           export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
 
-          # 3.2 Cài đặt idb-companion & gói Python fb-idb để kích hoạt cảm ứng
+          # 3.1 Cài đặt idb-companion và gói fb-idb
           brew tap facebook/fb
           brew trust facebook/fb || true
           brew install idb-companion || true
           brew link --overwrite idb-companion || true
 
-          # 3.3 Cài đặt fb-idb (CLI idb) và simmer
           pip install --upgrade pip
           pip install fb-idb
           pip install git+https://github.com/joshdholtz/simmer.git
 
-          # 3.4 Khởi động simmer ở chế độ compat trên cổng 4040
-          nohup simmer --port 4040 --mode compat --fps 20 --quality 75 > /tmp/simmer.log 2>&1 &
+          # 3.2 KÍCH HOẠT IDB DAEMON ĐỂ NHẬN SỰ KIỆN CLICK/TOUCH
+          UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
+          idb_companion --udid "$UDID" --port 10882 > /tmp/idb.log 2>&1 &
+          sleep 3
+          idb connect localhost 10882 || true
+          echo "Trạng thái IDB Targets:"
+          idb list-targets || true
 
-          # In trực tiếp toàn bộ log ra GitHub Actions console
-          tail -f /tmp/simmer.log &
+          # 3.3 Khởi động simmer và in log trực tiếp ra console
+          simmer --port 4040 --mode compat --fps 20 --quality 75 2>&1 | tee /tmp/simmer.log &
 
-          # 3.5 Kiểm tra kết nối cổng 4040
+          # 3.4 Đợi server sẵn sàng
           echo "Đang đợi simmer khởi động..."
           for i in {1..20}; do
             if curl -s http://127.0.0.1:4040/ > /dev/null; then
@@ -59,22 +62,22 @@ jobs:
             sleep 1
           done
 
-          # 3.6 Tải và chạy Cloudflare Tunnel trỏ vào cổng 4040
+          # 3.5 Tải và chạy Cloudflare Tunnel
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
           ./cloudflared tunnel --url http://localhost:4040 --no-autoupdate > cf.log 2>&1 &
 
-          # Đợi Cloudflare cấp link
-          sleep 8
+          # Đợi 10 giây để Cloudflare cấp URL và cập nhật DNS
+          sleep 10
           CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
 
           echo ""
           echo "========================================================================"
-          echo "🎉 MÁY ẢO IPHONE SIMMER ĐÃ SẴN SÀNG!"
+          echo "🎉 MÁY ẢO IPHONE SIMMER ĐÃ HOÀN TẤT!"
           echo "👉 TRUY CẬP TRỰC TIẾP:"
           echo "$CF_URL"
           echo "========================================================================"
           echo ""
 
-          # 3.7 Giữ phiên làm việc 2 tiếng
+          # 3.6 Giữ phiên làm việc 2 tiếng
           sleep 7200
