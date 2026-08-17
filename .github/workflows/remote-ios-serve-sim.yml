@@ -7,39 +7,78 @@ jobs:
   run-simulator:
     runs-on: macos-14
     steps:
-      - name: 1. Khởi động iPhone Simulator & Đợi Boot hoàn tất
+      - name: 1. Setup Bun & Node
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: 2. Clone serve-sim & Patch lỗi Swift Actor
         run: |
-          # Tìm thiết bị iPhone 15
+          git clone https://github.com/EvanBacon/serve-sim.git /tmp/serve-sim-src
+          cd /tmp/serve-sim-src
+
+          # Patch lỗi assumeIsolated ở dòng 174-175 trong FrameCapture.swift
+          python3 -c '
+          path = "packages/serve-sim/Sources/SimNative/FrameCapture.swift"
+          with open(path, "r") as f:
+              content = f.read()
+
+          old_code = """        desc.registerScreenCallbacks(
+              uuid: uuid,
+              callbackQueue: queue,
+              frameCallback: { [self] in assumeIsolated { $0.captureFrame() } },
+              surfacesChangedCallback: { [self] in assumeIsolated { $0.captureFrame() } },
+              propertiesChangedCallback: {}
+          )"""
+
+          new_code = """        desc.registerScreenCallbacks(
+              uuid: uuid,
+              callbackQueue: queue,
+              frameCallback: { [self] in queue.async { self.assumeIsolated { $0.captureFrame() } } },
+              surfacesChangedCallback: { [self] in queue.async { self.assumeIsolated { $0.captureFrame() } } },
+              propertiesChangedCallback: {}
+          )"""
+
+          if old_code in content:
+              content = content.replace(old_code, new_code)
+              with open(path, "w") as f:
+                  f.write(content)
+              print("--> Đã patch thành công FrameCapture.swift!")
+          else:
+              print("--> Không tìm thấy đoạn code cũ để replace, bỏ qua.")
+          '
+
+          # Cài đặt và build bản native không bị crash
+          bun install
+          bun run packages/serve-sim/build.ts
+
+      - name: 3. Khởi động iPhone Simulator
+        run: |
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
           
-          # Boot máy ảo
           xcrun simctl boot "$UDID" || true
-          
-          # QUAN TRỌNG: Đợi Simulator hoàn tất boot hệ thống trước khi capture
           xcrun simctl bootstatus "$UDID" -b
           
-          # Mở app Simulator giao diện macOS
           open -a Simulator
           sleep 3
 
-      - name: 2. Chạy serve-sim & Mở Cloudflare Tunnel
+      - name: 4. Chạy serve-sim (bản đã build) & Cloudflare Tunnel
         run: |
-          # 2.1 Chạy serve-sim ở chế độ nền
-          npx -y serve-sim --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
+          # Chạy bản serve-sim vừa build xong
+          node /tmp/serve-sim-src/packages/serve-sim/dist/serve-sim.js --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
 
-          # In log ra console
+          # In log ra màn hình Action
           tail -f /tmp/serve_sim.log &
 
-          # Đợi serve-sim sẵn sàng
-          sleep 8
+          sleep 6
 
-          # 2.2 Tải và chạy Cloudflare Tunnel
+          # Tải và chạy Cloudflare Tunnel
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
           ./cloudflared tunnel --url http://localhost:3200 --no-autoupdate > cf.log 2>&1 &
 
-          # Đợi Cloudflare cấp URL
+          # Lấy URL Cloudflare
           sleep 8
           CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
 
@@ -51,5 +90,5 @@ jobs:
           echo "========================================================================"
           echo ""
 
-          # 2.3 Giữ phiên làm việc 2 tiếng
+          # Giữ phiên làm việc 2 tiếng
           sleep 7200
