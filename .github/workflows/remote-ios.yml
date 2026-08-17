@@ -10,37 +10,42 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: 1. Khởi động iPhone Simulator
+      # 1. Ghim cố định phiên bản Python 3.11 ổn định tuyệt đối
+      - name: Cài đặt Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 2. Khởi động iPhone Simulator
         run: |
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
           xcrun simctl boot "$UDID" || true
           open -a Simulator
 
-      - name: 2. Cài đặt Meta IDB & Mã nguồn iOS Bridge
+      - name: 3. Cài đặt Meta IDB & Server iOS Bridge
         run: |
-          # 2.1 Cài đặt idb-companion
+          # 3.1 Cài đặt idb-companion
           export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
           brew tap facebook/fb
           brew trust facebook/fb || true
           brew install idb-companion
 
-          # 2.2 Clone mã nguồn server vào đúng vị trí ~/ios-bridge
+          # 3.2 Clone mã nguồn server vào ~/ios-bridge
           git clone --depth 1 https://github.com/himanshkukreja/ios-bridge.git ~/ios-bridge
 
-          # 2.3 Tạo Virtual Environment và cài đặt đầy đủ package
-          python3 -m venv /tmp/venv
-          source /tmp/venv/bin/activate
-          pip install --upgrade pip
+          # 3.3 Cài đặt thư viện trên môi trường Python 3.11 (Chỉ mất vài giây nhờ prebuilt wheels)
+          python -m pip install --upgrade pip
           pip install -r ~/ios-bridge/requirements.txt
           pip install fb-idb ios-bridge-cli
 
-          # 2.4 Chạy trực tiếp FastAPI Core Server của ios-bridge
+          # 3.4 Chạy trực tiếp FastAPI Core Server của ios-bridge
           cd ~/ios-bridge
-          nohup python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/ios_bridge.log 2>&1 &
+          nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/ios_bridge.log 2>&1 &
 
-          # 2.5 Vòng lặp kiểm tra sức khỏe server (Health Check)
+          # 3.5 Vòng lặp kiểm tra sức khỏe server (Health Check)
           echo "Đang chờ server khởi động..."
           for i in {1..20}; do
             if curl -s http://127.0.0.1:8000/ > /dev/null; then
@@ -51,7 +56,7 @@ jobs:
           done
           cat /tmp/ios_bridge.log
 
-      - name: 3. Mở Cloudflare Tunnel & Lấy Link Web
+      - name: 4. Mở Cloudflare Tunnel & Lấy Link Web
         run: |
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
@@ -64,11 +69,11 @@ jobs:
           echo ""
           echo "========================================================================"
           echo "🎉 MÁY ẢO IPHONE TRÊN WEB ĐÃ SẴN SÀNG!"
-          echo "👉 BẤM VÀO LINK NÀY ĐỂ MỞ GIAO DIỆN TEST:"
+          echo "👉 TRUY CẬP ĐỂ TEST NGAY (Mở bằng Chrome / Edge):"
           echo "$CF_URL"
           echo "========================================================================"
           echo ""
 
-      - name: 4. Giữ phiên làm việc (2 tiếng)
+      - name: 5. Giữ phiên làm việc (2 tiếng)
         run: |
           sleep 7200
