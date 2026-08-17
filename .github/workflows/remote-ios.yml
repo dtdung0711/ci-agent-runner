@@ -1,0 +1,58 @@
+name: Remote iOS Simulator on macOS
+
+on:
+  workflow_dispatch: # Bấm nút "Run workflow" trên web để kích hoạt khi muốn test
+
+jobs:
+  run-simulator:
+    runs-on: macos-14 # Chạy trên macOS Apple Silicon M1/M2 của GitHub
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 1. Khởi động iPhone Simulator & Cài đặt App
+        run: |
+          # 1.1 Khởi động Simulator iPhone 15
+          UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
+          echo "Booting device ID: $UDID"
+          xcrun simctl boot "$UDID" || true
+          open -a Simulator
+
+          # 1.2 Đưa giao diện màn hình lên mức cao nhất
+          defaults write com.apple.CoreSimulator.SimulatorFrame ShowSingleWindow -bool true
+
+      - name: 2. Kích hoạt macOS Screen Sharing (VNC Server)
+        run: |
+          # Đặt mật khẩu VNC là: 123456
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on \
+            -clientopts -setvnclegacy -yes \
+            -setvncpw -vncpw 123456 \
+            -restart -agent -privs -all
+
+      - name: 3. Mở Tunnel ra ngoài Internet qua Ngrok
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+        run: |
+          brew install ngrok
+          ngrok config add-authtoken $NGROK_AUTH_TOKEN
+          # Mở cổng 5900 (Cổng VNC của macOS)
+          ngrok tcp 5900 --log=stdout > ngrok.log &
+          sleep 5
+          
+          # Lấy địa chỉ IP:Port công khai của Ngrok in ra màn hình
+          curl -s http://127.0.0.1:4040/api/tunnels | python3 -c '
+          import sys, json
+          data = json.load(sys.stdin)
+          print("==================================================")
+          print("🎉 KẾT NỐI VNC THÀNH CÔNG!")
+          print("VNC Address:", data["tunnels"][0]["public_url"].replace("tcp://", ""))
+          print("Password VNC: 123456")
+          print("==================================================")
+          '
+
+      - name: 4. Giữ phiên làm việc (Tối đa 6 tiếng)
+        run: |
+          echo "Simulator đang chạy... Đừng tắt workflow này trong khi đang test."
+          # Giữ máy chạy trong 2 tiếng (7200s) hoặc tùy chỉnh
+          sleep 7200
