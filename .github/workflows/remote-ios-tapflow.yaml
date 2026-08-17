@@ -15,7 +15,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. Cài đặt Node.js 22 & Kích hoạt Xcode
+      # 1. Setup môi trường
       - name: Setup Môi trường
         uses: actions/setup-node@v4
         with:
@@ -50,49 +50,37 @@ jobs:
           };
           EOF
 
-      # 4. Cài Tapflow và Biên dịch lại các Native Helpers
+      # 4. Cài đặt Tapflow & Rebuild Native Swift Helpers
       - name: Cài đặt Tapflow & Rebuild Native Swift Helpers
         run: |
           npm install -g tapflow
 
-          # Tìm thư mục chứa binary của @tapflowio/ios-agent
           IOS_AGENT_BIN=$(find $(npm root -g) -type d -path "*/@tapflowio/ios-agent/bin" | head -n 1)
-          echo "Thư mục binary: $IOS_AGENT_BIN"
-
-          # Tải mã nguồn Swift gốc
           mkdir -p /tmp/tapflow-swift
           curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/screencapture-helper.swift -o /tmp/tapflow-swift/screencapture-helper.swift
           curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/touch-helper.swift -o /tmp/tapflow-swift/touch-helper.swift
           curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/keyboard-helper.swift -o /tmp/tapflow-swift/keyboard-helper.swift
           curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/rotation-helper.swift -o /tmp/tapflow-swift/rotation-helper.swift
 
-          # Biên dịch lại chuẩn native cho macOS 15
-          echo "Đang biên dịch lại native helpers..."
           swiftc /tmp/tapflow-swift/screencapture-helper.swift -o "$IOS_AGENT_BIN/screencapture-helper" -framework CoreVideo -framework ImageIO -framework VideoToolbox -framework CoreMedia
           swiftc /tmp/tapflow-swift/touch-helper.swift -o "$IOS_AGENT_BIN/touch-helper"
           swiftc /tmp/tapflow-swift/keyboard-helper.swift -o "$IOS_AGENT_BIN/keyboard-helper"
           swiftc /tmp/tapflow-swift/rotation-helper.swift -o "$IOS_AGENT_BIN/rotation-helper"
 
           chmod +x "$IOS_AGENT_BIN"/*
-          echo "✓ Đã sửa lỗi thư viện và biên dịch xong toàn bộ native helpers!"
 
-      # 5. Chạy Agent
+      # 5. Chạy Agent với cấu hình tối ưu độ phân giải & độ mượt
       - name: Chạy Tapflow iOS Agent
         env:
           TAPFLOW_RELAY_URL: ${{ secrets.TAPFLOW_RELAY_URL }}
           TAPFLOW_AGENT_TOKEN: ${{ secrets.TAPFLOW_AGENT_TOKEN }}
           NODE_OPTIONS: "--require /tmp/patch.cjs"
+          TAPFLOW_MAX_SIZE: "1280"              # Tối ưu kích thước khung hình, tăng độ mượt & giảm lag
+          TAPFLOW_IOS_H264_BITRATE: "8000000"   # Giữ bitrate ổn định
         run: |
           echo "Đang kết nối iOS Agent ($SELECTED_DEVICE) tới $TAPFLOW_RELAY_URL ..."
           tapflow agent start --relay "$TAPFLOW_RELAY_URL" --token "$TAPFLOW_AGENT_TOKEN" --platform ios --device "$SELECTED_DEVICE" &
 
           MINUTES=${{ github.event.inputs.duration_minutes || 120 }}
-          echo ""
-          echo "========================================================================"
-          echo "🎉 MÀN HÌNH IPHONE SẴN SÀNG HOÀN TOÀN!"
-          echo "👉 Hãy vào Web Dashboard: Màn hình iPhone sẽ hiện lên và tương tác được ngay."
-          echo "⏱️ Phiên làm việc sẽ giữ trong $MINUTES phút..."
-          echo "========================================================================"
-          echo ""
-
+          echo "Phiên làm việc sẵn sàng trong $MINUTES phút..."
           sleep $((MINUTES * 60))
