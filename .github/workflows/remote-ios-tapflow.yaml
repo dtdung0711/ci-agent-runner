@@ -15,16 +15,15 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. Setup môi trường
+      # 1. Setup Node.js 22 & Xcode
       - name: Setup Môi trường
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Kích hoạt Xcode Toolchain
+      - name: Kích hoạt Xcode
         run: |
           sudo xcode-select -s /Applications/Xcode.app
-          echo "Xcode: $(xcode-select -p)"
 
       # 2. Khởi động Simulator iPhone
       - name: Khởi động iPhone Simulator
@@ -50,37 +49,70 @@ jobs:
           };
           EOF
 
-      # 4. Cài đặt Tapflow & Rebuild Native Swift Helpers
-      - name: Cài đặt Tapflow & Rebuild Native Swift Helpers
+      # 4. Cache Tapflow & Native Helpers (Tiết kiệm thời gian)
+      - name: Cache Tapflow & Native Helpers
+        id: tapflow-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm-global
+            /tmp/tapflow-bin-cache
+          key: tapflow-ios-helpers-macos15-v1
+
+      # 5. Cài đặt hoặc Khôi phục từ Cache
+      - name: Cài đặt Tapflow & Native Helpers
         run: |
-          npm install -g tapflow
+          mkdir -p ~/.npm-global
+          npm config set prefix '~/.npm-global'
+          export PATH="$HOME/.npm-global/bin:$PATH"
 
-          IOS_AGENT_BIN=$(find $(npm root -g) -type d -path "*/@tapflowio/ios-agent/bin" | head -n 1)
-          mkdir -p /tmp/tapflow-swift
-          curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/screencapture-helper.swift -o /tmp/tapflow-swift/screencapture-helper.swift
-          curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/touch-helper.swift -o /tmp/tapflow-swift/touch-helper.swift
-          curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/keyboard-helper.swift -o /tmp/tapflow-swift/keyboard-helper.swift
-          curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/rotation-helper.swift -o /tmp/tapflow-swift/rotation-helper.swift
+          if [ "${{ steps.tapflow-cache.outputs.cache-hit }}" != "true" ]; then
+            echo "⚡ Chưa có cache: Đang cài đặt và biên dịch song song..."
+            npm install -g tapflow
 
-          swiftc /tmp/tapflow-swift/screencapture-helper.swift -o "$IOS_AGENT_BIN/screencapture-helper" -framework CoreVideo -framework ImageIO -framework VideoToolbox -framework CoreMedia
-          swiftc /tmp/tapflow-swift/touch-helper.swift -o "$IOS_AGENT_BIN/touch-helper"
-          swiftc /tmp/tapflow-swift/keyboard-helper.swift -o "$IOS_AGENT_BIN/keyboard-helper"
-          swiftc /tmp/tapflow-swift/rotation-helper.swift -o "$IOS_AGENT_BIN/rotation-helper"
+            IOS_AGENT_BIN=$(find "$HOME/.npm-global" -type d -path "*/@tapflowio/ios-agent/bin" | head -n 1)
+            mkdir -p /tmp/tapflow-swift /tmp/tapflow-bin-cache
+            
+            # Tải source Swift
+            curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/screencapture-helper.swift -o /tmp/tapflow-swift/screencapture-helper.swift
+            curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/touch-helper.swift -o /tmp/tapflow-swift/touch-helper.swift
+            curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/keyboard-helper.swift -o /tmp/tapflow-swift/keyboard-helper.swift
+            curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/rotation-helper.swift -o /tmp/tapflow-swift/rotation-helper.swift
 
-          chmod +x "$IOS_AGENT_BIN"/*
+            # Biên dịch song song tận dụng đa nhân CPU
+            swiftc /tmp/tapflow-swift/screencapture-helper.swift -o "$IOS_AGENT_BIN/screencapture-helper" -framework CoreVideo -framework ImageIO -framework VideoToolbox -framework CoreMedia &
+            swiftc /tmp/tapflow-swift/touch-helper.swift -o "$IOS_AGENT_BIN/touch-helper" &
+            swiftc /tmp/tapflow-swift/keyboard-helper.swift -o "$IOS_AGENT_BIN/keyboard-helper" &
+            swiftc /tmp/tapflow-swift/rotation-helper.swift -o "$IOS_AGENT_BIN/rotation-helper" &
+            wait
 
-      # 5. Chạy Agent với cấu hình tối ưu độ phân giải & độ mượt
+            chmod +x "$IOS_AGENT_BIN"/*
+            cp -r "$IOS_AGENT_BIN"/* /tmp/tapflow-bin-cache/
+            echo "✓ Đã biên dịch xong và lưu vào Cache!"
+          else
+            echo "🚀 Đã tìm thấy Cache! Khôi phục trong 2 giây..."
+            IOS_AGENT_BIN=$(find "$HOME/.npm-global" -type d -path "*/@tapflowio/ios-agent/bin" | head -n 1)
+            cp -r /tmp/tapflow-bin-cache/* "$IOS_AGENT_BIN/"
+            chmod +x "$IOS_AGENT_BIN"/*
+            echo "✓ Khôi phục thành công!"
+          fi
+
+      # 6. Chạy Agent
       - name: Chạy Tapflow iOS Agent
         env:
           TAPFLOW_RELAY_URL: ${{ secrets.TAPFLOW_RELAY_URL }}
           TAPFLOW_AGENT_TOKEN: ${{ secrets.TAPFLOW_AGENT_TOKEN }}
           NODE_OPTIONS: "--require /tmp/patch.cjs"
-          TAPFLOW_MAX_SIZE: "1280"              # Tối ưu kích thước khung hình, tăng độ mượt & giảm lag
-          TAPFLOW_IOS_H264_BITRATE: "8000000"   # Giữ bitrate ổn định
+          PATH: "/Users/runner/.npm-global/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+          TAPFLOW_MAX_SIZE: "1280"
+          TAPFLOW_IOS_H264_BITRATE: "8000000"
         run: |
           echo "Đang kết nối iOS Agent ($SELECTED_DEVICE) tới $TAPFLOW_RELAY_URL ..."
           tapflow agent start --relay "$TAPFLOW_RELAY_URL" --token "$TAPFLOW_AGENT_TOKEN" --platform ios --device "$SELECTED_DEVICE" &
 
           MINUTES=${{ github.event.inputs.duration_minutes || 120 }}
-          echo "Phiên làm việc sẵn sàng trong $MINUTES phút..."
+          echo "========================================================================"
+          echo "🎉 IPHONE SẴN SÀNG! Bạn hãy thao tác vuốt trên web để thấy FPS tăng lên 30."
+          echo "⏱️ Phiên làm việc sẽ giữ trong $MINUTES phút..."
+          echo "========================================================================"
           sleep $((MINUTES * 60))
