@@ -11,8 +11,8 @@ jobs:
         id: cache-serve-sim
         uses: actions/cache@v4
         with:
-          path: /tmp/serve-sim-dist
-          key: serve-sim-macos14-v1
+          path: /tmp/serve-sim-src
+          key: serve-sim-macos14-v2
 
       - name: 2. Kích hoạt Xcode 16 (Chỉ chạy khi chưa có Cache)
         if: steps.cache-serve-sim.outputs.cache-hit != 'true'
@@ -37,7 +37,7 @@ jobs:
           # 4.1 Sửa cờ swiftbuild -> native
           sed -i '' 's/--build-system swiftbuild/--build-system native/g' packages/serve-sim/Sources/SimNative/build.sh
 
-          # 4.2 Sửa lỗi Swift Concurrency
+          # 4.2 Sửa lỗi Swift Concurrency (Task await)
           node -e '
             const fs = require("fs");
             const file = "packages/serve-sim/Sources/SimNative/FrameCapture.swift";
@@ -49,7 +49,7 @@ jobs:
             fs.writeFileSync(file, content);
           '
 
-          # 4.3 Xóa dấu phẩy thừa
+          # 4.3 Xóa dấu phẩy thừa trước dấu đóng ngoặc
           node -e '
             const fs = require("fs");
             const path = require("path");
@@ -63,15 +63,11 @@ jobs:
             });
           '
 
-          # 4.4 Build và lưu thư mục dist vào đường dẫn cache
+          # 4.4 Cài đặt dependencies & build bản native
           bun install
           bun run packages/serve-sim/build.ts
-          
-          mkdir -p /tmp/serve-sim-dist
-          cp -r packages/serve-sim/dist/* /tmp/serve-sim-dist/
-          cp packages/serve-sim/package.json /tmp/serve-sim-dist/
 
-      - name: 5. Khởi động iPhone Simulator & Đợi Boot
+      - name: 5. Khởi động iPhone Simulator & Đợi Boot hoàn tất
         run: |
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
@@ -84,10 +80,10 @@ jobs:
 
       - name: 6. Chạy serve-sim & Mở Cloudflare Tunnel
         run: |
-          # 6.1 Khởi động serve-sim từ bản đã cache
-          node /tmp/serve-sim-dist/serve-sim.js --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
+          # 6.1 Khởi động serve-sim từ thư mục đã cache đầy đủ
+          node /tmp/serve-sim-src/packages/serve-sim/dist/serve-sim.js --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
 
-          # In log
+          # In log serve-sim ra console
           tail -f /tmp/serve_sim.log &
           sleep 5
 
@@ -96,7 +92,7 @@ jobs:
           chmod +x cloudflared
           ./cloudflared tunnel --url http://localhost:3200 --no-autoupdate > cf.log 2>&1 &
 
-          # 6.3 Đợi Cloudflare cấp link
+          # 6.3 Vòng lặp đợi Cloudflare cấp URL
           echo "Đang đợi Cloudflare cấp URL..."
           CF_URL=""
           for i in {1..30}; do
@@ -117,8 +113,9 @@ jobs:
           echo "========================================================================"
           echo ""
 
+          # Ghi link vào trang Summary của GitHub Actions
           echo "## 🎉 Máy ảo iOS Simulator đã sẵn sàng!" >> $GITHUB_STEP_SUMMARY
           echo "### 👉 [Bấm vào đây để mở Simulator trên trình duyệt]($CF_URL)" >> $GITHUB_STEP_SUMMARY
 
-          # Giữ phiên làm việc 2 tiếng
+          # 6.4 Giữ phiên làm việc 2 tiếng
           sleep 7200
