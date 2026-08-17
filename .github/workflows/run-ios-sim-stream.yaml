@@ -24,7 +24,7 @@ jobs:
           xcrun simctl boot "$UDID" || true
           open -a Simulator
           
-          # Ẩn viền máy để khung hình stream vuông vắn, sắc nét nhất
+          # Tối ưu hiển thị cho Simulator
           defaults write com.apple.CoreSimulator.SimulatorFrame ShowSingleWindow -bool true
 
       # 3. Cài đặt và Chạy SimStream
@@ -44,18 +44,14 @@ jobs:
           cd ~/SimStream
           chmod +x *.sh
 
-          # 3.3 Cài đặt môi trường touch bridge của idb
-          pip install --upgrade pip
-          pip install fb-idb websockets
+          # 3.3 Tạo đúng thư mục .venv (có dấu chấm) theo yêu cầu của SimStream
+          python3 -m venv .venv
+          ./.venv/bin/pip install --upgrade pip
+          ./.venv/bin/pip install fb-idb websockets grpcio
 
-          # Tạo venv cho script bridge của SimStream
-          python3 -m venv venv
-          ./venv/bin/pip install fb-idb websockets grpcio
-
-          # 3.4 Chạy SimStream với chế độ Software Encoder cho máy ảo
-          # ./start.sh sẽ tự động mở port 3738 và kết nối Cloudflare Tunnel
+          # 3.4 Khởi chạy SimStream (sử dụng Software Encoder cho máy ảo)
           export SIMULATOR_STREAM_PREFER_SOFTWARE_ENCODER=1
           ./start.sh 2>&1 | tee /tmp/simstream.log &
 
-          # 3.5 Theo dõi log và giữ phiên làm việc 2 tiếng
+          # 3.5 Giữ phiên làm việc 2 tiếng
           sleep 7200
