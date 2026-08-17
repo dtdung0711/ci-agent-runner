@@ -10,12 +10,11 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. Ghim cố định phiên bản Python 3.11 ổn định tuyệt đối
+      # 1. Cài đặt Python 3.11 chuẩn mực (Bỏ cache để không quét tìm file repo gốc)
       - name: Cài đặt Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: 2. Khởi động iPhone Simulator
         run: |
@@ -36,7 +35,7 @@ jobs:
           # 3.2 Clone mã nguồn server vào ~/ios-bridge
           git clone --depth 1 https://github.com/himanshkukreja/ios-bridge.git ~/ios-bridge
 
-          # 3.3 Cài đặt thư viện trên môi trường Python 3.11 (Chỉ mất vài giây nhờ prebuilt wheels)
+          # 3.3 Cài đặt thư viện trên môi trường Python 3.11
           python -m pip install --upgrade pip
           pip install -r ~/ios-bridge/requirements.txt
           pip install fb-idb ios-bridge-cli
