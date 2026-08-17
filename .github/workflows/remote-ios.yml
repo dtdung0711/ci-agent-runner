@@ -22,16 +22,16 @@ jobs:
           xcrun simctl boot "$UDID" || true
           open -a Simulator
 
-      - name: 3. Cài đặt ffmpeg, idb-companion & Chạy Server
+      - name: 3. Khởi động Core Server & Mở Cloudflare Tunnel
         run: |
-          set -e
-
-          # 3.1 Cài đặt ffmpeg & idb-companion (Theo đúng mục Team Server Setup trong docs)
+          # 3.1 Cài đặt ffmpeg & idb-companion
           export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
           brew tap facebook/fb
           brew trust facebook/fb || true
-          brew install ffmpeg idb-companion
+          brew install ffmpeg
+          brew install idb-companion || true
+          brew link --overwrite idb-companion || true
 
           # 3.2 Clone mã nguồn server vào ~/ios-bridge
           git clone --depth 1 https://github.com/himanshkukreja/ios-bridge.git ~/ios-bridge
@@ -49,16 +49,23 @@ jobs:
           cd ~/ios-bridge
           PYTHONPATH=. nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/ios_bridge.log 2>&1 &
 
-          # 3.6 Đợi server sẵn sàng
+          # 3.6 Đợi và kiểm tra phản hồi từ server
           echo "Đang đợi server sẵn sàng..."
+          SERVER_READY=false
           for i in {1..30}; do
             if curl -s -f http://127.0.0.1:8000/docs > /dev/null 2>&1 || curl -s -f http://127.0.0.1:8000/ > /dev/null 2>&1; then
+              SERVER_READY=true
               echo "✅ SERVER ĐÃ HOẠT ĐỘNG HOÀN TOÀN TRÊN PORT 8000!"
               break
             fi
             sleep 1
           done
           cat /tmp/ios_bridge.log
+
+          if [ "$SERVER_READY" = false ]; then
+            echo "❌ Lỗi: Server không thể khởi động!"
+            exit 1
+          fi
 
           # 3.7 Mở Cloudflare Tunnel
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
@@ -71,8 +78,12 @@ jobs:
           echo ""
           echo "========================================================================"
           echo "🎉 MÁY ẢO IPHONE ĐÃ SẴN SÀNG!"
-          echo "👉 TRUY CẬP TRỰC TIẾP:"
+          echo "👉 TRUY CẬP VÀO LINK:"
           echo "$CF_URL/web"
+          echo ""
+          echo "⚠️ LƯU Ý KHI VÀO TRANG TEST:"
+          echo "Tại mục 'Stream Mode' bên dưới màn hình, bấm chọn 'WebSocket' hoặc 'Screenshot'"
+          echo "để nhận luồng hình ảnh qua đường hầm Cloudflare."
           echo "========================================================================"
           echo ""
 
