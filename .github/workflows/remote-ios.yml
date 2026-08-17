@@ -49,6 +49,9 @@ jobs:
           cd ~/ios-bridge
           PYTHONPATH=. nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/ios_bridge.log 2>&1 &
 
+          # THÊM DÒNG NÀY ĐỂ IN LOG RA CONSOLE GITHUB ACTIONS:
+          tail -f /tmp/ios_bridge.log &
+
           # 3.6 Đợi và kiểm tra phản hồi từ server
           echo "Đang đợi server sẵn sàng..."
           SERVER_READY=false
