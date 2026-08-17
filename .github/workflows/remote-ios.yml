@@ -17,30 +17,31 @@ jobs:
           xcrun simctl boot "$UDID" || true
           open -a Simulator
 
-      - name: 2. Cài đặt và Chạy Server iOS Bridge (Theo đúng docs)
+      - name: 2. Cài đặt Meta IDB & Server iOS Bridge
         run: |
-          # 1. Tạo Virtual Environment để không bị lỗi PEP 668
+          # 2.1 Cài đặt idb-companion (Tắt auto-update để cài nhanh chỉ mất 30s)
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          brew tap facebook/fb
+          brew install idb-companion
+
+          # 2.2 Tạo Virtual Environment và cài đặt đầy đủ gói server
           python3 -m venv /tmp/venv
           source /tmp/venv/bin/activate
-
-          # 2. Cài đặt package CLI chính thức của ios-bridge
           pip install --upgrade pip
-          pip install ios-bridge-cli
+          pip install ios-bridge-cli fb-idb
 
-          # 3. Khởi động server cho Team/Web theo đúng docs
+          # 2.3 Khởi động server
           nohup ios-bridge start-server --host 0.0.0.0 --port 8000 > /tmp/ios_bridge.log 2>&1 &
           
-          # Đợi server sẵn sàng và in log kiểm tra
-          sleep 8
+          # Đợi server lên sóng và kiểm tra log
+          sleep 6
           cat /tmp/ios_bridge.log
 
-      - name: 3. Mở Cloudflare Tunnel & Xuất Link Trình Duyệt
+      - name: 3. Mở Cloudflare Tunnel & Lấy Link Web
         run: |
-          # Tải Cloudflared cho Apple Silicon
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
 
-          # Mở tunnel trực tiếp vào cổng 8000 của ios-bridge
           ./cloudflared tunnel --url http://localhost:8000 --no-autoupdate > cf.log 2>&1 &
           sleep 8
 
@@ -48,8 +49,8 @@ jobs:
 
           echo ""
           echo "========================================================================"
-          echo "🎉 MÁY ẢO IPHONE TRÊN TRÌNH DUYỆT ĐÃ SẴN SÀNG!"
-          echo "👉 TRUY CẬP ĐỂ TEST NGAY (Mở bằng Chrome / Edge):"
+          echo "🎉 MÁY ẢO IPHONE ĐÃ CHẠY HOÀN TẤT!"
+          echo "👉 TRUY CẬP TRỰC TIẾP QUA LINK:"
           echo "$CF_URL"
           echo "========================================================================"
           echo ""
