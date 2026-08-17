@@ -22,7 +22,7 @@ jobs:
           xcrun simctl boot "$UDID" || true
           open -a Simulator
 
-      - name: 3. Khởi động Server iOS Bridge & Mở Cloudflare Tunnel
+      - name: 3. Khởi động Core Server & Mở Cloudflare Tunnel
         run: |
           # 3.1 Cài đặt idb-companion
           export HOMEBREW_NO_AUTO_UPDATE=1
@@ -37,35 +37,42 @@ jobs:
           # 3.3 Cài đặt thư viện phụ thuộc
           python -m pip install --upgrade pip
           pip install -r ~/ios-bridge/requirements.txt
-          pip install fb-idb ios-bridge-cli
+          pip install fb-idb
 
-          # 3.4 Giải phóng cổng 8000 (nếu có tiến trình cũ)
+          # 3.4 Dọn dẹp tiến trình cũ và file cache PID
           lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+          rm -rf ~/.ios-bridge
 
-          # 3.5 Khởi động server dùng cờ --background chính thức của tác giả
-          ios-bridge start-server --host 0.0.0.0 --port 8000 --background
+          # 3.5 Chạy trực tiếp backend FastAPI (Tránh câu hỏi [y/N] của CLI)
+          cd ~/ios-bridge
+          PYTHONPATH=. nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/ios_bridge.log 2>&1 &
 
-          # 3.6 Đợi 5 giây và in trạng thái server kiểm tra
-          sleep 5
-          ios-bridge status || true
+          # 3.6 Đợi và kiểm tra phản hồi từ endpoint /web
+          echo "Đang đợi server khởi động..."
+          for i in {1..20}; do
+            if curl -s http://127.0.0.1:8000/ > /dev/null; then
+              echo "✅ SERVER ĐÃ PHẢN HỒI THÀNH CÔNG!"
+              break
+            fi
+            sleep 1
+          done
+          cat /tmp/ios_bridge.log
 
-          # 3.7 Tải và chạy Cloudflare Tunnel
+          # 3.7 Mở Cloudflare Tunnel
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
           ./cloudflared tunnel --url http://localhost:8000 --no-autoupdate > cf.log 2>&1 &
 
-          # Đợi Cloudflare cấp URL
           sleep 8
-
           CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
 
           echo ""
           echo "========================================================================"
-          echo "🎉 MÁY ẢO IPHONE TRÊN WEB ĐÃ SẴN SÀNG!"
-          echo "👉 TRUY CẬP ĐỂ TEST NGAY (Mở bằng Chrome / Edge):"
-          echo "$CF_URL"
+          echo "🎉 MÁY ẢO IPHONE ĐÃ SẴN SÀNG!"
+          echo "👉 TRUY CẬP TRỰC TIẾP QUA LINK NÀY (Đường dẫn /web chuẩn docs):"
+          echo "$CF_URL/web"
           echo "========================================================================"
           echo ""
 
-          # 3.8 Giữ phiên làm việc
+          # 3.8 Giữ tiến trình hoạt động
           sleep 7200
