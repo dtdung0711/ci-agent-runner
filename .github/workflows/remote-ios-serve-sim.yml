@@ -7,25 +7,34 @@ jobs:
   run-simulator:
     runs-on: macos-14
     steps:
-      - name: 1. Khởi động iPhone Simulator
+      - name: 1. Khởi động iPhone Simulator & Đợi Boot hoàn tất
         run: |
+          # Tìm thiết bị iPhone 15
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
+          
+          # Boot máy ảo
           xcrun simctl boot "$UDID" || true
+          
+          # QUAN TRỌNG: Đợi Simulator hoàn tất boot hệ thống trước khi capture
+          xcrun simctl bootstatus "$UDID" -b
+          
+          # Mở app Simulator giao diện macOS
           open -a Simulator
+          sleep 3
 
       - name: 2. Chạy serve-sim & Mở Cloudflare Tunnel
         run: |
-          # 2.1 Chạy serve-sim với codec mjpeg (chuẩn cho máy ảo VM) và ghi log
+          # 2.1 Chạy serve-sim ở chế độ nền
           npx -y serve-sim --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
 
-          # 2.2 In trực tiếp log của serve-sim ra màn hình GitHub Actions
+          # In log ra console
           tail -f /tmp/serve_sim.log &
 
-          # Đợi 6 giây để server dựng xong
-          sleep 6
+          # Đợi serve-sim sẵn sàng
+          sleep 8
 
-          # 2.3 Tải và chạy Cloudflare Tunnel trỏ vào cổng 3200
+          # 2.2 Tải và chạy Cloudflare Tunnel
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
           ./cloudflared tunnel --url http://localhost:3200 --no-autoupdate > cf.log 2>&1 &
@@ -42,5 +51,5 @@ jobs:
           echo "========================================================================"
           echo ""
 
-          # 2.4 Giữ phiên làm việc 2 tiếng
+          # 2.3 Giữ phiên làm việc 2 tiếng
           sleep 7200
