@@ -30,17 +30,27 @@ jobs:
           brew install ffmpeg
 
           echo "🚀 Tải idb-companion v1.5.0.b1 prebuilt..."
-          sudo mkdir -p /opt/homebrew/bin /usr/local/bin /tmp/idb-bin
-          curl -sL https://github.com/facebook/idb/releases/download/v1.5.0.b1/idb-companion.universal.tar.gz | tar -xz -C /tmp/idb-bin
+          mkdir -p ~/idb-bin
+          curl -sL https://github.com/facebook/idb/releases/download/v1.5.0.b1/idb-companion.universal.tar.gz | tar -xz -C ~/idb-bin
+          chmod -R +x ~/idb-bin
+
+          # Đưa binary và resources vào các thư mục PATH
+          sudo mkdir -p /opt/homebrew/bin /usr/local/bin
+          sudo cp -rf ~/idb-bin/* /opt/homebrew/bin/ 2>/dev/null || true
+          sudo cp -rf ~/idb-bin/* /usr/local/bin/ 2>/dev/null || true
           
-          # Đưa binary vào các thư mục PATH
-          sudo cp -rf /tmp/idb-bin/* /opt/homebrew/bin/ 2>/dev/null || true
-          sudo cp -rf /tmp/idb-bin/* /usr/local/bin/ 2>/dev/null || true
-          sudo chmod +x /opt/homebrew/bin/idb-companion /usr/local/bin/idb-companion 2>/dev/null || true
+          # Tạo symlink hỗ trợ cả idb-companion lẫn idb_companion
+          sudo ln -sf /opt/homebrew/bin/idb_companion /opt/homebrew/bin/idb-companion 2>/dev/null || true
+          sudo ln -sf /usr/local/bin/idb_companion /usr/local/bin/idb-companion 2>/dev/null || true
+          sudo chmod +x /opt/homebrew/bin/idb* /usr/local/bin/idb* 2>/dev/null || true
 
           # 3.2 Khởi chạy idb-companion cho Simulator
           echo "🔌 Bật idb-companion cho UDID: $UDID"
-          /opt/homebrew/bin/idb-companion --udid "$UDID" > /tmp/companion.log 2>&1 &
+          COMPANION_BIN="/opt/homebrew/bin/idb_companion"
+          [ -f "$COMPANION_BIN" ] || COMPANION_BIN="/opt/homebrew/bin/idb-companion"
+          [ -f "$COMPANION_BIN" ] || COMPANION_BIN="$HOME/idb-bin/idb_companion"
+          
+          $COMPANION_BIN --udid "$UDID" > /tmp/companion.log 2>&1 &
           sleep 2
 
           # 3.3 Clone mã nguồn server vào ~/ios-bridge
@@ -93,10 +103,6 @@ jobs:
           echo "🎉 MÁY ẢO IPHONE ĐÃ SẴN SÀNG!"
           echo "👉 TRUY CẬP VÀO LINK:"
           echo "$CF_URL/web"
-          echo ""
-          echo "⚠️ LƯU Ý KHI VÀO TRANG TEST:"
-          echo "Tại mục 'Stream Mode' bên dưới màn hình, bấm chọn 'WebSocket' hoặc 'Screenshot'"
-          echo "để nhận luồng hình ảnh qua đường hầm Cloudflare."
           echo "========================================================================"
           echo ""
 
