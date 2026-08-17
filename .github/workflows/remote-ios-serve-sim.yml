@@ -21,30 +21,53 @@ jobs:
         with:
           bun-version: latest
 
-      - name: 3. Clone serve-sim, Patch và Build Native
+      - name: 3. Clone serve-sim, Tự động Patch toàn diện & Build
         run: |
           git clone https://github.com/EvanBacon/serve-sim.git /tmp/serve-sim-src
           cd /tmp/serve-sim-src
 
-          # 3.1 Sửa cờ swiftbuild -> native cho build script
-          sed -i '' 's/--build-system swiftbuild/--build-system native/g' packages/serve-sim/Sources/SimNative/build.sh
-
-          # 3.2 Sửa lỗi bất đồng bộ Swift Concurrency trong FrameCapture.swift
+          # Script tự động xử lý toàn bộ lỗi build và cú pháp Swift
           node -e '
             const fs = require("fs");
-            const file = "packages/serve-sim/Sources/SimNative/FrameCapture.swift";
-            let content = fs.readFileSync(file, "utf8");
-            
-            content = content.replaceAll(
-              "assumeIsolated { $0.captureFrame() }",
-              "queue.async { self.assumeIsolated { $0.captureFrame() } }"
-            );
-            
-            fs.writeFileSync(file, content);
-            console.log("--> [SUCCESS] Đã patch thành công FrameCapture.swift!");
+            const path = require("path");
+
+            // 1. Sửa cờ swiftbuild -> native trong build.sh
+            const buildSh = "packages/serve-sim/Sources/SimNative/build.sh";
+            if (fs.existsSync(buildSh)) {
+              let sh = fs.readFileSync(buildSh, "utf8");
+              sh = sh.replaceAll("--build-system swiftbuild", "--build-system native");
+              fs.writeFileSync(buildSh, sh);
+              console.log("--> [1] Đã sửa build.sh thành --build-system native");
+            }
+
+            // 2. Sửa lỗi Actor Concurrency trong FrameCapture.swift
+            const frameCap = "packages/serve-sim/Sources/SimNative/FrameCapture.swift";
+            if (fs.existsSync(frameCap)) {
+              let fc = fs.readFileSync(frameCap, "utf8");
+              fc = fc.replaceAll(
+                "assumeIsolated { $0.captureFrame() }",
+                "queue.async { self.assumeIsolated { $0.captureFrame() } }"
+              );
+              fs.writeFileSync(frameCap, fc);
+              console.log("--> [2] Đã patch luồng queue.async cho FrameCapture.swift");
+            }
+
+            // 3. Tự động xóa dấu phẩy thừa trước dấu đóng ngoặc trong tất cả file Swift (CaptureEngine.swift,...)
+            const dir = "packages/serve-sim/Sources/SimNative";
+            fs.readdirSync(dir).forEach(f => {
+              if (f.endsWith(".swift")) {
+                const p = path.join(dir, f);
+                let code = fs.readFileSync(p, "utf8");
+                const patched = code.replace(/,\s*(\n\s*\))/g, "$1");
+                if (code !== patched) {
+                  fs.writeFileSync(p, patched);
+                  console.log("--> [3] Đã xóa dấu phẩy thừa trong file: " + f);
+                }
+              }
+            });
           '
 
-          # 3.3 Cài đặt và build bản native
+          # Build bản native sạch lỗi
           bun install
           bun run packages/serve-sim/build.ts
 
@@ -61,7 +84,7 @@ jobs:
 
       - name: 5. Chạy serve-sim & Mở Cloudflare Tunnel
         run: |
-          # Chạy bản serve-sim nội bộ đã build không bị crash
+          # Chạy bản serve-sim vừa build xong
           node /tmp/serve-sim-src/packages/serve-sim/dist/serve-sim.js --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
 
           # In log ra console
