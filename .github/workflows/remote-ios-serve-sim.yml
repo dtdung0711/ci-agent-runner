@@ -7,55 +7,41 @@ jobs:
   run-simulator:
     runs-on: macos-14
     steps:
-      - name: 1. Setup Bun & Node
+      - name: 1. Setup Xcode 16 (Bắt buộc cho Swift 6.0)
+        uses: maxim-lobarev/setup-xcode@v1
+        with:
+          xcode-version: '16.0'
+
+      - name: 2. Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: 2. Clone serve-sim & Patch lỗi build
+      - name: 3. Clone serve-sim & Patch lỗi Concurrency
         run: |
           git clone https://github.com/EvanBacon/serve-sim.git /tmp/serve-sim-src
           cd /tmp/serve-sim-src
 
-          # 2.1 Patch lỗi swiftbuild -> native trong build.sh
-          sed -i '' 's/--build-system swiftbuild/--build-system native/g' packages/serve-sim/Sources/SimNative/build.sh
-
-          # 2.2 Patch lỗi assumeIsolated trong FrameCapture.swift
-          python3 -c '
-          path = "packages/serve-sim/Sources/SimNative/FrameCapture.swift"
-          with open(path, "r") as f:
-              content = f.read()
-
-          old_code = """        desc.registerScreenCallbacks(
-              uuid: uuid,
-              callbackQueue: queue,
-              frameCallback: { [self] in assumeIsolated { $0.captureFrame() } },
-              surfacesChangedCallback: { [self] in assumeIsolated { $0.captureFrame() } },
-              propertiesChangedCallback: {}
-          )"""
-
-          new_code = """        desc.registerScreenCallbacks(
-              uuid: uuid,
-              callbackQueue: queue,
-              frameCallback: { [self] in queue.async { self.assumeIsolated { $0.captureFrame() } } },
-              surfacesChangedCallback: { [self] in queue.async { self.assumeIsolated { $0.captureFrame() } } },
-              propertiesChangedCallback: {}
-          )"""
-
-          if old_code in content:
-              content = content.replace(old_code, new_code)
-              with open(path, "w") as f:
-                  f.write(content)
-              print("--> Đã patch thành công FrameCapture.swift!")
-          else:
-              print("--> Không tìm thấy đoạn code cũ để replace, bỏ qua.")
+          # Tự động sửa lỗi actor executor bằng Node script
+          node -e '
+            const fs = require("fs");
+            const file = "packages/serve-sim/Sources/SimNative/FrameCapture.swift";
+            let content = fs.readFileSync(file, "utf8");
+            
+            content = content.replaceAll(
+              "assumeIsolated { $0.captureFrame() }",
+              "queue.async { self.assumeIsolated { $0.captureFrame() } }"
+            );
+            
+            fs.writeFileSync(file, content);
+            console.log("--> [SUCCESS] Đã patch thành công FrameCapture.swift!");
           '
 
-          # 2.3 Cài đặt và build toàn bộ
+          # Cài đặt và build bản native bằng Xcode 16
           bun install
           bun run packages/serve-sim/build.ts
 
-      - name: 3. Khởi động iPhone Simulator
+      - name: 4. Khởi động iPhone Simulator
         run: |
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
@@ -66,12 +52,12 @@ jobs:
           open -a Simulator
           sleep 3
 
-      - name: 4. Chạy serve-sim (bản đã build) & Cloudflare Tunnel
+      - name: 5. Chạy serve-sim & Cloudflare Tunnel
         run: |
           # Chạy bản serve-sim vừa build xong
           node /tmp/serve-sim-src/packages/serve-sim/dist/serve-sim.js --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
 
-          # In log ra console
+          # In log ra màn hình Action
           tail -f /tmp/serve_sim.log &
 
           sleep 6
