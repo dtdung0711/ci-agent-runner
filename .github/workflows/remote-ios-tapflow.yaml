@@ -1,0 +1,66 @@
+name: Remote iOS Simulator with Tapflow
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-simulator:
+    runs-on: macos-14
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. Cài đặt Node.js 22 chuẩn theo yêu cầu của Tapflow
+      - name: Cài đặt Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 2. Khởi động Simulator iPhone 15
+      - name: Khởi động iPhone Simulator
+        run: |
+          UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
+          echo "Booting device ID: $UDID"
+          xcrun simctl boot "$UDID" || true
+          open -a Simulator
+
+      # 3. Cài đặt Tapflow, khởi tạo Admin và mở Cloudflare Tunnel
+      - name: Chạy Tapflow & Mở Cloudflare Tunnel
+        run: |
+          # 3.1 Cài đặt Tapflow toàn cục
+          npm install -g tapflow
+
+          # 3.2 Khởi tạo tài khoản Admin mặc định (để bỏ qua bước setup thủ công)
+          tapflow admin init --email admin@test.com --password adminpassword123 || true
+
+          # 3.3 Khởi động Tapflow (Relay + Agent chạy trên cổng 4000)
+          tapflow start > /tmp/tapflow.log 2>&1 &
+
+          # In log ra console
+          tail -f /tmp/tapflow.log &
+
+          # Đợi 8 giây để server sẵn sàng
+          sleep 8
+
+          # 3.4 Tải và chạy Cloudflare Tunnel trỏ vào cổng 4000
+          curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
+          chmod +x cloudflared
+          ./cloudflared tunnel --url http://localhost:4000 --no-autoupdate > cf.log 2>&1 &
+
+          sleep 8
+          CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
+
+          echo ""
+          echo "========================================================================"
+          echo "🎉 MÁY ẢO IPHONE TAPFLOW ĐÃ SẴN SÀNG!"
+          echo "👉 TRUY CẬP ĐỂ TEST (Mở bằng Chrome/Edge/Điện thoại):"
+          echo "$CF_URL"
+          echo ""
+          echo "🔑 TÀI KHOẢN ĐĂNG NHẬP:"
+          echo "• Email   : admin@test.com"
+          echo "• Password: adminpassword123"
+          echo "========================================================================"
+          echo ""
+
+          # 3.5 Giữ phiên làm việc 2 tiếng
+          sleep 7200
