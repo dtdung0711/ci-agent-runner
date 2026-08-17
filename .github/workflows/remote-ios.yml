@@ -19,9 +19,11 @@ jobs:
 
       - name: 2. Cài đặt Meta IDB & Server iOS Bridge
         run: |
-          # 2.1 Cài đặt idb-companion (Tắt auto-update để cài nhanh chỉ mất 30s)
+          # 2.1 Bỏ qua xác thực Tap Trust và cài idb-companion
           export HOMEBREW_NO_AUTO_UPDATE=1
+          export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
           brew tap facebook/fb
+          brew trust facebook/fb || true
           brew install idb-companion
 
           # 2.2 Tạo Virtual Environment và cài đặt đầy đủ gói server
