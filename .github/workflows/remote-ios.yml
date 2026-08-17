@@ -12,53 +12,47 @@ jobs:
 
       - name: 1. Khởi động iPhone Simulator
         run: |
-          # Tìm và bật Simulator iPhone 15
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
           xcrun simctl boot "$UDID" || true
           open -a Simulator
           defaults write com.apple.CoreSimulator.SimulatorFrame ShowSingleWindow -bool true
 
-      - name: 2. Kích hoạt VNC Server trên macOS
+      - name: 2. Kích hoạt VNC Server trên macOS (Đã sửa chuẩn)
         run: |
-          # Cấu hình chuẩn VNC legacy cho macOS Sonoma
+          # Sửa lại cú pháp chuẩn: -setvnclegacy -vnclegacy yes
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
-            -clientopts -setvnclegacy -mode 1 \
-            -setvncpw -vncpw 123456 \
+            -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw 123456 \
             -restart -agent -privs -all
+          
+          # Kiểm tra xem cổng 5900 đã mở thực sự chưa
+          sleep 2
+          nc -zv 127.0.0.1 5900 || echo "WARNING: Port 5900 chua mo!"
 
       - name: 3. Cài đặt noVNC (Giao diện Web HTML5)
         run: |
-          # Tải noVNC và websockify để chạy VNC trực tiếp trên trình duyệt web
           git clone --depth 1 https://github.com/novnc/noVNC.git /tmp/novnc
           git clone --depth 1 https://github.com/novnc/websockify.git /tmp/novnc/utils/websockify
           /tmp/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 &
 
       - name: 4. Chạy Cloudflare Tunnel & Lấy Link Web
         run: |
-          # Tải Cloudflared binary cho Apple Silicon
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
 
-          # Chạy Quick Tunnel miễn phí trỏ vào cổng Web noVNC 6080
           ./cloudflared tunnel --url http://localhost:6080 --no-autoupdate > cf.log 2>&1 &
-
-          # Đợi 8 giây để Cloudflare cấp URL
           sleep 8
 
-          # Trích xuất và in URL Web ra màn hình Console
           CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
 
           echo ""
           echo "========================================================================"
-          echo "🎉 MÁY ẢO IPHONE TRÊN WEB ĐÃ SẴN SÀNG!"
-          echo "👉 TRUY CẬP TRỰC TIẾP QUA LINK NÀY ĐỂ DÙNG (Mở bằng Chrome/Edge):"
+          echo "🎉 LINK TRUY CẬP ĐÃ SỬA XONG:"
           echo "$CF_URL/vnc.html?autoconnect=true&password=123456"
           echo "========================================================================"
           echo ""
 
       - name: 5. Giữ phiên làm việc (2 tiếng)
         run: |
-          echo "Simulator đang hoạt động. Bạn có thể test trực tiếp trên Web!"
           sleep 7200
