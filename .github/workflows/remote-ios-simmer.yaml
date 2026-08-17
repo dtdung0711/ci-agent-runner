@@ -16,22 +16,26 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 2. Khởi động Simulator iPhone 15
+      # 2. Khởi động Simulator iPhone 15 & Đưa lên màn hình chính
       - name: Khởi động iPhone Simulator
         run: |
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
           xcrun simctl boot "$UDID" || true
           open -a Simulator
+          
+          # Đảm bảo cửa sổ Simulator active trên màn hình để chế độ Fast chụp trực tiếp
+          sleep 3
+          osascript -e 'tell application "Simulator" to activate'
 
-      # 3. Kích hoạt IDB Companion, Simmer & Cloudflare Tunnel
+      # 3. Chạy Simmer ở chế độ FAST 30 FPS
       - name: Chạy Simmer & Mở Cloudflare Tunnel
         run: |
           export PYTHONUNBUFFERED=1
           export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
 
-          # 3.1 Cài đặt idb-companion và gói fb-idb
+          # 3.1 Cài đặt idb & simmer
           brew tap facebook/fb
           brew trust facebook/fb || true
           brew install idb-companion || true
@@ -41,22 +45,23 @@ jobs:
           pip install fb-idb
           pip install git+https://github.com/joshdholtz/simmer.git
 
-          # 3.2 KÍCH HOẠT IDB DAEMON ĐỂ NHẬN SỰ KIỆN CLICK/TOUCH
+          # 3.2 Kết nối IDB
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           idb_companion --udid "$UDID" --port 10882 > /tmp/idb.log 2>&1 &
-          sleep 3
+          sleep 2
           idb connect localhost 10882 || true
-          echo "Trạng thái IDB Targets:"
-          idb list-targets || true
 
-          # 3.3 Khởi động simmer và in log trực tiếp ra console
-          simmer --port 4040 --mode compat --fps 20 --quality 75 2>&1 | tee /tmp/simmer.log &
+          # 3.3 CHẠY SIMMER VỚI MODE FAST + 30 FPS + CHẤT LƯỢNG 60 ĐỂ GIẢM PING
+          nohup simmer --port 4040 --mode fast --fps 30 --quality 60 > /tmp/simmer.log 2>&1 &
 
-          # 3.4 Đợi server sẵn sàng
+          # In log ra console
+          tail -f /tmp/simmer.log &
+
+          # 3.4 Kiểm tra kết nối cổng 4040
           echo "Đang đợi simmer khởi động..."
           for i in {1..20}; do
             if curl -s http://127.0.0.1:4040/ > /dev/null; then
-              echo "✅ SIMMER ĐÃ SẴN SÀNG TRÊN CỔNG 4040!"
+              echo "✅ SIMMER FAST MODE ĐÃ SẴN SÀNG!"
               break
             fi
             sleep 1
@@ -67,14 +72,14 @@ jobs:
           chmod +x cloudflared
           ./cloudflared tunnel --url http://localhost:4040 --no-autoupdate > cf.log 2>&1 &
 
-          # Đợi 10 giây để Cloudflare cấp URL và cập nhật DNS
+          # Đợi 10 giây lấy link
           sleep 10
           CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
 
           echo ""
           echo "========================================================================"
-          echo "🎉 MÁY ẢO IPHONE SIMMER ĐÃ HOÀN TẤT!"
-          echo "👉 TRUY CẬP TRỰC TIẾP:"
+          echo "🎉 MÁY ẢO IPHONE FAST MODE (30 FPS) ĐÃ SẴN SÀNG!"
+          echo "👉 TRUY CẬP ĐỂ TEST:"
           echo "$CF_URL"
           echo "========================================================================"
           echo ""
