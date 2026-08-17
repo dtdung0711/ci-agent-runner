@@ -84,22 +84,30 @@ jobs:
 
       - name: 5. Chạy serve-sim & Mở Cloudflare Tunnel
         run: |
-          # Chạy bản serve-sim vừa build xong
+          # 5.1 Khởi động serve-sim
           node /tmp/serve-sim-src/packages/serve-sim/dist/serve-sim.js --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
 
-          # In log ra console
+          # In log serve-sim
           tail -f /tmp/serve_sim.log &
+          sleep 5
 
-          sleep 6
-
-          # Tải và chạy Cloudflare Tunnel
+          # 5.2 Tải và chạy Cloudflare Tunnel
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
           ./cloudflared tunnel --url http://localhost:3200 --no-autoupdate > cf.log 2>&1 &
 
-          # Lấy URL Cloudflare
-          sleep 8
-          CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
+          # 5.3 Vòng lặp đợi Cloudflare cấp link URL
+          echo "Đang đợi Cloudflare cấp URL..."
+          CF_URL=""
+          for i in {1..30}; do
+            if [ -f cf.log ]; then
+              CF_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' cf.log | head -n 1)
+              if [ -n "$CF_URL" ]; then
+                break
+              fi
+            fi
+            sleep 2
+          done
 
           echo ""
           echo "========================================================================"
@@ -109,5 +117,9 @@ jobs:
           echo "========================================================================"
           echo ""
 
-          # Giữ phiên làm việc 2 tiếng
+          # Ghi link vào trang Summary của GitHub Actions
+          echo "## 🎉 Máy ảo iOS Simulator đã sẵn sàng!" >> $GITHUB_STEP_SUMMARY
+          echo "### 👉 [Bấm vào đây để mở Simulator trên trình duyệt]($CF_URL)" >> $GITHUB_STEP_SUMMARY
+
+          # 5.4 Giữ phiên làm việc 2 tiếng
           sleep 7200
