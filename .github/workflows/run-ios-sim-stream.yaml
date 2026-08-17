@@ -23,11 +23,9 @@ jobs:
           echo "Booting device ID: $UDID"
           xcrun simctl boot "$UDID" || true
           open -a Simulator
-          
-          # Tối ưu hiển thị cho Simulator
           defaults write com.apple.CoreSimulator.SimulatorFrame ShowSingleWindow -bool true
 
-      # 3. Cài đặt và Chạy SimStream
+      # 3. Cài đặt, Vá lỗi Swift & Chạy SimStream
       - name: Cài đặt và Chạy SimStream
         run: |
           export PYTHONUNBUFFERED=1
@@ -44,14 +42,28 @@ jobs:
           cd ~/SimStream
           chmod +x *.sh
 
-          # 3.3 Tạo đúng thư mục .venv (có dấu chấm) theo yêu cầu của SimStream
+          # 3.3 VÁ LỖI SWIFT CONCURRENCY TRONG StreamingApp.swift
+          python3 -c "
+          file_path = 'Sources/StreamingApp.swift'
+          with open(file_path, 'r') as f:
+              code = f.read()
+          old = 'Task { await captureManager.updateConfig(fps: fpsClamped, maxHeight: maxHeightClamped) }'
+          new = 'let fFps = fpsClamped; let fHeight = maxHeightClamped; Task { await captureManager.updateConfig(fps: fFps, maxHeight: fHeight) }'
+          if old in code:
+              code = code.replace(old, new)
+              with open(file_path, 'w') as f:
+                  f.write(code)
+              print('✅ ĐÃ VÁ LỖI SWIFT THÀNH CÔNG!')
+          "
+
+          # 3.4 Tạo môi trường ảo .venv theo chuẩn SimStream
           python3 -m venv .venv
           ./.venv/bin/pip install --upgrade pip
           ./.venv/bin/pip install fb-idb websockets grpcio
 
-          # 3.4 Khởi chạy SimStream (sử dụng Software Encoder cho máy ảo)
+          # 3.5 Khởi chạy SimStream
           export SIMULATOR_STREAM_PREFER_SOFTWARE_ENCODER=1
           ./start.sh 2>&1 | tee /tmp/simstream.log &
 
-          # 3.5 Giữ phiên làm việc 2 tiếng
+          # 3.6 Giữ phiên làm việc 2 tiếng
           sleep 7200
