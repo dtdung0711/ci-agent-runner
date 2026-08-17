@@ -7,7 +7,7 @@ jobs:
   run-simulator:
     runs-on: macos-14
     steps:
-      - name: 1. Kích hoạt Xcode 16 (Tự động quét bản Xcode 16 trên máy)
+      - name: 1. Kích hoạt Xcode 16
         run: |
           XCODE_PATH=$(find /Applications -maxdepth 1 -name "Xcode_16*.app" | sort -V | tail -n 1)
           echo "Tìm thấy Xcode 16 tại: $XCODE_PATH"
@@ -21,12 +21,15 @@ jobs:
         with:
           bun-version: latest
 
-      - name: 3. Clone serve-sim, Patch lỗi Actor và Build
+      - name: 3. Clone serve-sim, Patch và Build Native
         run: |
           git clone https://github.com/EvanBacon/serve-sim.git /tmp/serve-sim-src
           cd /tmp/serve-sim-src
 
-          # Sửa lỗi bất đồng bộ Swift Concurrency trong FrameCapture.swift
+          # 3.1 Sửa cờ swiftbuild -> native cho build script
+          sed -i '' 's/--build-system swiftbuild/--build-system native/g' packages/serve-sim/Sources/SimNative/build.sh
+
+          # 3.2 Sửa lỗi bất đồng bộ Swift Concurrency trong FrameCapture.swift
           node -e '
             const fs = require("fs");
             const file = "packages/serve-sim/Sources/SimNative/FrameCapture.swift";
@@ -41,7 +44,7 @@ jobs:
             console.log("--> [SUCCESS] Đã patch thành công FrameCapture.swift!");
           '
 
-          # Build bản native
+          # 3.3 Cài đặt và build bản native
           bun install
           bun run packages/serve-sim/build.ts
 
