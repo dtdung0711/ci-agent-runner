@@ -16,44 +16,40 @@ jobs:
           echo "Booting device ID: $UDID"
           xcrun simctl boot "$UDID" || true
           open -a Simulator
-          defaults write com.apple.CoreSimulator.SimulatorFrame ShowSingleWindow -bool true
 
-      - name: 2. Cài đặt Username và Password cho VNC / macOS
+      - name: 2. Cài đặt và Chạy Server iOS-Bridge (FastAPI)
         run: |
-          # 1. Đổi mật khẩu tài khoản macOS 'runner' thành '123456' (Dùng lệnh dscl của macOS)
-          sudo dscl . -passwd /Users/runner 123456
+          # Clone mã nguồn ios-bridge
+          git clone --depth 1 https://github.com/himanshkukreja/ios-bridge.git /tmp/ios-bridge
+          cd /tmp/ios-bridge
 
-          # 2. Phân toàn quyền Remote Management cho user 'runner'
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate \
-            -configure -access -on -users runner -privs -all \
-            -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw 123456 \
-            -restart -agent -console
-          sleep 3
+          # Cài đặt thư viện Python phụ thuộc
+          pip3 install -r requirements.txt
 
-      - name: 3. Cài đặt noVNC (Giao diện Web HTML5)
+          # Chạy server FastAPI trên cổng 8000 ngầm
+          PYTHONPATH=$(pwd) python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          sleep 6
+
+      - name: 3. Mở Cloudflare Tunnel & Xuất Link Trình Duyệt
         run: |
-          git clone --depth 1 https://github.com/novnc/noVNC.git /tmp/novnc
-          git clone --depth 1 https://github.com/novnc/websockify.git /tmp/novnc/utils/websockify
-          /tmp/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 &
-
-      - name: 4. Chạy Cloudflare Tunnel & Lấy Link Web
-        run: |
+          # Tải Cloudflared cho Apple Silicon
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
 
-          ./cloudflared tunnel --url http://localhost:6080 --no-autoupdate > cf.log 2>&1 &
+          # Mở tunnel trực tiếp vào cổng 8000 của ios-bridge
+          ./cloudflared tunnel --url http://localhost:8000 --no-autoupdate > cf.log 2>&1 &
           sleep 8
 
           CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
 
           echo ""
           echo "========================================================================"
-          echo "🎉 LINK TRUY CẬP ĐÃ SẴN SÀNG:"
-          echo "$CF_URL/vnc.html?autoconnect=true&username=runner&password=123456"
+          echo "🎉 MÁY ẢO IPHONE TRÊN TRÌNH DUYỆT ĐÃ SẴN SÀNG!"
+          echo "👉 TRUY CẬP ĐỂ TEST NGAY (Mở bằng Chrome / Edge / Điện thoại):"
+          echo "$CF_URL"
           echo "========================================================================"
           echo ""
 
-      - name: 5. Giữ phiên làm việc (2 tiếng)
+      - name: 4. Giữ phiên làm việc (2 tiếng)
         run: |
           sleep 7200
