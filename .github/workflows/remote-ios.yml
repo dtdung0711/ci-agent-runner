@@ -17,18 +17,22 @@ jobs:
           xcrun simctl boot "$UDID" || true
           open -a Simulator
 
-      - name: 2. Cài đặt và Chạy Server iOS-Bridge (FastAPI)
+      - name: 2. Cài đặt và Chạy Server iOS Bridge (Theo đúng docs)
         run: |
-          # Clone mã nguồn ios-bridge
-          git clone --depth 1 https://github.com/himanshkukreja/ios-bridge.git /tmp/ios-bridge
-          cd /tmp/ios-bridge
+          # 1. Tạo Virtual Environment để không bị lỗi PEP 668
+          python3 -m venv /tmp/venv
+          source /tmp/venv/bin/activate
 
-          # Cài đặt thư viện Python phụ thuộc
-          pip3 install -r requirements.txt
+          # 2. Cài đặt package CLI chính thức của ios-bridge
+          pip install --upgrade pip
+          pip install ios-bridge-cli
 
-          # Chạy server FastAPI trên cổng 8000 ngầm
-          PYTHONPATH=$(pwd) python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
-          sleep 6
+          # 3. Khởi động server cho Team/Web theo đúng docs
+          nohup ios-bridge start-server --host 0.0.0.0 --port 8000 > /tmp/ios_bridge.log 2>&1 &
+          
+          # Đợi server sẵn sàng và in log kiểm tra
+          sleep 8
+          cat /tmp/ios_bridge.log
 
       - name: 3. Mở Cloudflare Tunnel & Xuất Link Trình Duyệt
         run: |
@@ -45,7 +49,7 @@ jobs:
           echo ""
           echo "========================================================================"
           echo "🎉 MÁY ẢO IPHONE TRÊN TRÌNH DUYỆT ĐÃ SẴN SÀNG!"
-          echo "👉 TRUY CẬP ĐỂ TEST NGAY (Mở bằng Chrome / Edge / Điện thoại):"
+          echo "👉 TRUY CẬP ĐỂ TEST NGAY (Mở bằng Chrome / Edge):"
           echo "$CF_URL"
           echo "========================================================================"
           echo ""
