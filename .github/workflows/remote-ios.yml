@@ -18,17 +18,18 @@ jobs:
           open -a Simulator
           defaults write com.apple.CoreSimulator.SimulatorFrame ShowSingleWindow -bool true
 
-      - name: 2. Kích hoạt VNC Server trên macOS (Đã sửa chuẩn)
+      - name: 2. Cài đặt Username và Password cho VNC / macOS
         run: |
-          # Sửa lại cú pháp chuẩn: -setvnclegacy -vnclegacy yes
+          # 1. Đặt mật khẩu đăng nhập hệ thống cho user 'runner'
+          echo "runner:123456" | sudo chpasswd
+
+          # 2. Phân toàn quyền Remote Desktop cho đích danh user 'runner'
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on \
+            -activate \
+            -configure -access -on -users runner -privs -all \
             -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw 123456 \
-            -restart -agent -privs -all
-          
-          # Kiểm tra xem cổng 5900 đã mở thực sự chưa
-          sleep 2
-          nc -zv 127.0.0.1 5900 || echo "WARNING: Port 5900 chua mo!"
+            -restart -agent -console
+          sleep 3
 
       - name: 3. Cài đặt noVNC (Giao diện Web HTML5)
         run: |
@@ -48,8 +49,12 @@ jobs:
 
           echo ""
           echo "========================================================================"
-          echo "🎉 LINK TRUY CẬP ĐÃ SỬA XONG:"
-          echo "$CF_URL/vnc.html?autoconnect=true&password=123456"
+          echo "🎉 MÁY ẢO IPHONE TRÊN WEB ĐÃ CẤU HÌNH XONG TÀI KHOẢN!"
+          echo "👉 TÀI KHOẢN: runner"
+          echo "👉 MẬT KHẨU : 123456"
+          echo ""
+          echo "👉 BẤM LINK DƯỚI ĐÂY ĐỂ TỰ ĐỘNG ĐĂNG NHẬP VÀO SIMULATOR:"
+          echo "$CF_URL/vnc.html?autoconnect=true&username=runner&password=123456"
           echo "========================================================================"
           echo ""
 
