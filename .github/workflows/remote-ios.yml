@@ -10,20 +10,22 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. Cài đặt Python 3.11 chuẩn mực (Bỏ cache để không quét tìm file repo gốc)
+      # 1. Khởi tạo môi trường Python 3.11
       - name: Cài đặt Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: 2. Khởi động iPhone Simulator
+      # 2. Khởi động Simulator iPhone 15
+      - name: Khởi động iPhone Simulator
         run: |
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
           xcrun simctl boot "$UDID" || true
           open -a Simulator
 
-      - name: 3. Cài đặt Meta IDB & Server iOS Bridge
+      # 3. Cài đặt và Chạy Server + Cloudflare TRONG CÙNG 1 TIẾN TRÌNH (Không bị ngắt)
+      - name: Chạy Server iOS Bridge & Mở Cloudflare Tunnel
         run: |
           # 3.1 Cài đặt idb-companion
           export HOMEBREW_NO_AUTO_UPDATE=1
@@ -35,44 +37,42 @@ jobs:
           # 3.2 Clone mã nguồn server vào ~/ios-bridge
           git clone --depth 1 https://github.com/himanshkukreja/ios-bridge.git ~/ios-bridge
 
-          # 3.3 Cài đặt thư viện trên môi trường Python 3.11
+          # 3.3 Cài đặt thư viện phụ thuộc
           python -m pip install --upgrade pip
           pip install -r ~/ios-bridge/requirements.txt
           pip install fb-idb ios-bridge-cli
 
-          # 3.4 Chạy trực tiếp FastAPI Core Server của ios-bridge
+          # 3.4 Khởi động server theo đúng chuẩn CLI của ios-bridge
           cd ~/ios-bridge
-          nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/ios_bridge.log 2>&1 &
+          ios-bridge start-server --host 0.0.0.0 --port 8000 &
 
-          # 3.5 Vòng lặp kiểm tra sức khỏe server (Health Check)
-          echo "Đang chờ server khởi động..."
-          for i in {1..20}; do
-            if curl -s http://127.0.0.1:8000/ > /dev/null; then
-              echo "✅ SERVER ĐÃ HOẠT ĐỘNG THÀNH CÔNG TRÊN PORT 8000!"
+          # 3.5 Đợi và kiểm tra chính xác cổng 8000 đã mở
+          echo "Đang đợi server khởi động trên cổng 8000..."
+          for i in {1..30}; do
+            if nc -zv 127.0.0.1 8000 2>&1 | grep -q "succeeded"; then
+              echo "✅ SERVER ĐÃ MỞ CỔNG 8000 THÀNH CÔNG!"
               break
             fi
             sleep 1
           done
-          cat /tmp/ios_bridge.log
 
-      - name: 4. Mở Cloudflare Tunnel & Lấy Link Web
-        run: |
+          # 3.6 Tải và chạy Cloudflare Tunnel
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
-
           ./cloudflared tunnel --url http://localhost:8000 --no-autoupdate > cf.log 2>&1 &
+
+          # Đợi 8 giây để Cloudflare cấp URL
           sleep 8
 
           CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
 
           echo ""
           echo "========================================================================"
-          echo "🎉 MÁY ẢO IPHONE TRÊN WEB ĐÃ SẴN SÀNG!"
+          echo "🎉 MÁY ẢO IPHONE TRÊN WEB ĐÃ HOẠT ĐỘNG!"
           echo "👉 TRUY CẬP ĐỂ TEST NGAY (Mở bằng Chrome / Edge):"
           echo "$CF_URL"
           echo "========================================================================"
           echo ""
 
-      - name: 5. Giữ phiên làm việc (2 tiếng)
-        run: |
+          # 3.7 Giữ nguyên phiên làm việc tại đây để tiến trình không bị huỷ
           sleep 7200
