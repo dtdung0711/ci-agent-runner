@@ -34,7 +34,7 @@ jobs:
           brew link --overwrite idb-companion || true
 
           # 3.2 Clone mã nguồn server vào ~/ios-bridge
-          git clone --depth 1 https://github.com/himanshkukreja/ios-bridge.git ~/ios-bridge
+          git clone --depth 1 https://github.com/dtdung0711/ios-bridge.git ~/ios-bridge
 
           # 3.3 Cài đặt thư viện phụ thuộc
           python -m pip install --upgrade pip
