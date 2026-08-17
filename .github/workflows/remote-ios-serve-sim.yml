@@ -7,22 +7,26 @@ jobs:
   run-simulator:
     runs-on: macos-14
     steps:
-      - name: 1. Setup Xcode 16 (Bắt buộc cho Swift 6.0)
-        uses: maxim-lobarev/setup-xcode@v1
-        with:
-          xcode-version: '16.0'
+      - name: 1. Kích hoạt Xcode 16 (Tự động quét bản Xcode 16 trên máy)
+        run: |
+          XCODE_PATH=$(find /Applications -maxdepth 1 -name "Xcode_16*.app" | sort -V | tail -n 1)
+          echo "Tìm thấy Xcode 16 tại: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          echo "DEVELOPER_DIR=$XCODE_PATH/Contents/Developer" >> $GITHUB_ENV
+          xcodebuild -version
+          swift --version
 
       - name: 2. Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: 3. Clone serve-sim & Patch lỗi Concurrency
+      - name: 3. Clone serve-sim, Patch lỗi Actor và Build
         run: |
           git clone https://github.com/EvanBacon/serve-sim.git /tmp/serve-sim-src
           cd /tmp/serve-sim-src
 
-          # Tự động sửa lỗi actor executor bằng Node script
+          # Sửa lỗi bất đồng bộ Swift Concurrency trong FrameCapture.swift
           node -e '
             const fs = require("fs");
             const file = "packages/serve-sim/Sources/SimNative/FrameCapture.swift";
@@ -37,11 +41,11 @@ jobs:
             console.log("--> [SUCCESS] Đã patch thành công FrameCapture.swift!");
           '
 
-          # Cài đặt và build bản native bằng Xcode 16
+          # Build bản native
           bun install
           bun run packages/serve-sim/build.ts
 
-      - name: 4. Khởi động iPhone Simulator
+      - name: 4. Khởi động iPhone Simulator & Đợi Boot
         run: |
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
@@ -52,12 +56,12 @@ jobs:
           open -a Simulator
           sleep 3
 
-      - name: 5. Chạy serve-sim & Cloudflare Tunnel
+      - name: 5. Chạy serve-sim & Mở Cloudflare Tunnel
         run: |
-          # Chạy bản serve-sim vừa build xong
+          # Chạy bản serve-sim nội bộ đã build không bị crash
           node /tmp/serve-sim-src/packages/serve-sim/dist/serve-sim.js --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
 
-          # In log ra màn hình Action
+          # In log ra console
           tail -f /tmp/serve_sim.log &
 
           sleep 6
