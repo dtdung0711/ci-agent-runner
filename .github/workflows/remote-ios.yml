@@ -25,9 +25,19 @@ jobs:
 
       - name: 3. Khởi động Core Server & Mở Cloudflare Tunnel
         run: |
-          # 3.1 Cài đặt ffmpeg & cliclick (cực nhanh, không lỗi)
+          # 3.1 Cài đặt ffmpeg & cliclick
           export HOMEBREW_NO_AUTO_UPDATE=1
           brew install ffmpeg cliclick
+
+          # Cài đặt idb-companion prebuilt vào đúng /usr/local/bin
+          echo "🚀 Tải idb-companion..."
+          mkdir -p ~/idb-bin
+          curl -sL https://github.com/facebook/idb/releases/download/v1.5.0.b1/idb-companion.universal.tar.gz | tar -xz -C ~/idb-bin
+          sudo cp -rf ~/idb-bin/* /usr/local/bin/ 2>/dev/null || true
+          sudo cp -rf ~/idb-bin/* /opt/homebrew/bin/ 2>/dev/null || true
+          sudo ln -sf /usr/local/bin/idb_companion /usr/local/bin/idb-companion 2>/dev/null || true
+          sudo ln -sf /opt/homebrew/bin/idb_companion /opt/homebrew/bin/idb-companion 2>/dev/null || true
+          sudo chmod +x /usr/local/bin/idb* /opt/homebrew/bin/idb* 2>/dev/null || true
 
           # 3.2 Clone mã nguồn server vào ~/ios-bridge
           git clone --depth 1 https://github.com/dtdung0711/ios-bridge.git ~/ios-bridge
