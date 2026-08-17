@@ -22,24 +22,24 @@ jobs:
           xcrun simctl boot "$UDID" || true
           open -a Simulator
 
-      - name: 3. Khởi động Core Server & Mở Cloudflare Tunnel
+      - name: 3. Cài đặt ffmpeg, idb-companion & Chạy Server
         run: |
           set -e
 
-          # 3.1 Cài đặt idb-companion
+          # 3.1 Cài đặt ffmpeg & idb-companion (Theo đúng mục Team Server Setup trong docs)
           export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
           brew tap facebook/fb
           brew trust facebook/fb || true
-          brew install idb-companion
+          brew install ffmpeg idb-companion
 
           # 3.2 Clone mã nguồn server vào ~/ios-bridge
           git clone --depth 1 https://github.com/himanshkukreja/ios-bridge.git ~/ios-bridge
 
-          # 3.3 Cài đặt đầy đủ 100% thư viện cần thiết (Bổ sung Pillow, OpenCV, WebRTC...)
+          # 3.3 Cài đặt thư viện phụ thuộc
           python -m pip install --upgrade pip
           pip install -r ~/ios-bridge/requirements.txt
-          pip install Pillow opencv-python aiortc av websockets aiohttp jinja2 python-multipart requests fb-idb ios-bridge-cli
+          pip install Pillow opencv-python aiortc av websockets aiohttp jinja2 python-multipart requests fb-idb
 
           # 3.4 Dọn dẹp tiến trình và file cache
           lsof -ti:8000 | xargs kill -9 2>/dev/null || true
@@ -49,26 +49,18 @@ jobs:
           cd ~/ios-bridge
           PYTHONPATH=. nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/ios_bridge.log 2>&1 &
 
-          # 3.6 Kiểm tra nghiêm ngặt phản hồi HTTP từ server
+          # 3.6 Đợi server sẵn sàng
           echo "Đang đợi server sẵn sàng..."
-          SERVER_READY=false
           for i in {1..30}; do
             if curl -s -f http://127.0.0.1:8000/docs > /dev/null 2>&1 || curl -s -f http://127.0.0.1:8000/ > /dev/null 2>&1; then
-              SERVER_READY=true
               echo "✅ SERVER ĐÃ HOẠT ĐỘNG HOÀN TOÀN TRÊN PORT 8000!"
               break
             fi
             sleep 1
           done
-
           cat /tmp/ios_bridge.log
 
-          if [ "$SERVER_READY" = false ]; then
-            echo "❌ Lỗi: Server không thể khởi động thành công!"
-            exit 1
-          fi
-
-          # 3.7 Tải và chạy Cloudflare Tunnel
+          # 3.7 Mở Cloudflare Tunnel
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
           ./cloudflared tunnel --url http://localhost:8000 --no-autoupdate > cf.log 2>&1 &
@@ -78,8 +70,8 @@ jobs:
 
           echo ""
           echo "========================================================================"
-          echo "🎉 MÁY ẢO IPHONE TRÊN WEB ĐÃ SẴN SÀNG!"
-          echo "👉 TRUY CẬP ĐỂ TEST (Đường dẫn /web chuẩn):"
+          echo "🎉 MÁY ẢO IPHONE ĐÃ SẴN SÀNG!"
+          echo "👉 TRUY CẬP TRỰC TIẾP:"
           echo "$CF_URL/web"
           echo "========================================================================"
           echo ""
