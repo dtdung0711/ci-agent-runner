@@ -7,71 +7,71 @@ jobs:
   run-simulator:
     runs-on: macos-14
     steps:
-      - name: 1. Kích hoạt Xcode 16
+      - name: 1. Kiểm tra & Khôi phục Cache Bản Build serve-sim
+        id: cache-serve-sim
+        uses: actions/cache@v4
+        with:
+          path: /tmp/serve-sim-dist
+          key: serve-sim-macos14-v1
+
+      - name: 2. Kích hoạt Xcode 16 (Chỉ chạy khi chưa có Cache)
+        if: steps.cache-serve-sim.outputs.cache-hit != 'true'
         run: |
           XCODE_PATH=$(find /Applications -maxdepth 1 -name "Xcode_16*.app" | sort -V | tail -n 1)
           echo "Tìm thấy Xcode 16 tại: $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
           echo "DEVELOPER_DIR=$XCODE_PATH/Contents/Developer" >> $GITHUB_ENV
-          xcodebuild -version
-          swift --version
 
-      - name: 2. Setup Bun
+      - name: 3. Setup Bun (Chỉ chạy khi chưa có Cache)
+        if: steps.cache-serve-sim.outputs.cache-hit != 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: 3. Clone serve-sim, Tự động Patch toàn diện & Build
+      - name: 4. Clone, Patch & Build (Chỉ chạy LẦN ĐẦU)
+        if: steps.cache-serve-sim.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/EvanBacon/serve-sim.git /tmp/serve-sim-src
           cd /tmp/serve-sim-src
 
-          # Script tự động xử lý toàn bộ lỗi build và Swift Concurrency
+          # 4.1 Sửa cờ swiftbuild -> native
+          sed -i '' 's/--build-system swiftbuild/--build-system native/g' packages/serve-sim/Sources/SimNative/build.sh
+
+          # 4.2 Sửa lỗi Swift Concurrency
+          node -e '
+            const fs = require("fs");
+            const file = "packages/serve-sim/Sources/SimNative/FrameCapture.swift";
+            let content = fs.readFileSync(file, "utf8");
+            content = content.replaceAll(
+              "assumeIsolated { $0.captureFrame() }",
+              "Task { await self.captureFrame() }"
+            );
+            fs.writeFileSync(file, content);
+          '
+
+          # 4.3 Xóa dấu phẩy thừa
           node -e '
             const fs = require("fs");
             const path = require("path");
-
-            // 1. Sửa cờ swiftbuild -> native trong build.sh
-            const buildSh = "packages/serve-sim/Sources/SimNative/build.sh";
-            if (fs.existsSync(buildSh)) {
-              let sh = fs.readFileSync(buildSh, "utf8");
-              sh = sh.replaceAll("--build-system swiftbuild", "--build-system native");
-              fs.writeFileSync(buildSh, sh);
-              console.log("--> [1] Đã sửa build.sh thành --build-system native");
-            }
-
-            // 2. Chuyển assumeIsolated sang Task { await self.captureFrame() } chuẩn Swift 6
-            const frameCap = "packages/serve-sim/Sources/SimNative/FrameCapture.swift";
-            if (fs.existsSync(frameCap)) {
-              let fc = fs.readFileSync(frameCap, "utf8");
-              fc = fc.replaceAll(
-                "assumeIsolated { $0.captureFrame() }",
-                "Task { await self.captureFrame() }"
-              );
-              fs.writeFileSync(frameCap, fc);
-              console.log("--> [2] Đã patch Task { await self.captureFrame() } an toàn cho FrameCapture.swift");
-            }
-
-            // 3. Xóa dấu phẩy thừa trước dấu đóng ngoặc trong tất cả file Swift
             const dir = "packages/serve-sim/Sources/SimNative";
             fs.readdirSync(dir).forEach(f => {
               if (f.endsWith(".swift")) {
                 const p = path.join(dir, f);
                 let code = fs.readFileSync(p, "utf8");
-                const patched = code.replace(/,\s*(\n\s*\))/g, "$1");
-                if (code !== patched) {
-                  fs.writeFileSync(p, patched);
-                  console.log("--> [3] Đã xóa dấu phẩy thừa trong file: " + f);
-                }
+                fs.writeFileSync(p, code.replace(/,\s*(\n\s*\))/g, "$1"));
               }
             });
           '
 
-          # Build bản native
+          # 4.4 Build và lưu thư mục dist vào đường dẫn cache
           bun install
           bun run packages/serve-sim/build.ts
+          
+          mkdir -p /tmp/serve-sim-dist
+          cp -r packages/serve-sim/dist/* /tmp/serve-sim-dist/
+          cp packages/serve-sim/package.json /tmp/serve-sim-dist/
 
-      - name: 4. Khởi động iPhone Simulator & Đợi Boot
+      - name: 5. Khởi động iPhone Simulator & Đợi Boot
         run: |
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
@@ -82,21 +82,21 @@ jobs:
           open -a Simulator
           sleep 3
 
-      - name: 5. Chạy serve-sim & Mở Cloudflare Tunnel
+      - name: 6. Chạy serve-sim & Mở Cloudflare Tunnel
         run: |
-          # 5.1 Khởi động serve-sim
-          node /tmp/serve-sim-src/packages/serve-sim/dist/serve-sim.js --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
+          # 6.1 Khởi động serve-sim từ bản đã cache
+          node /tmp/serve-sim-dist/serve-sim.js --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
 
-          # In log serve-sim
+          # In log
           tail -f /tmp/serve_sim.log &
           sleep 5
 
-          # 5.2 Tải và chạy Cloudflare Tunnel
+          # 6.2 Tải và chạy Cloudflare Tunnel
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
           ./cloudflared tunnel --url http://localhost:3200 --no-autoupdate > cf.log 2>&1 &
 
-          # 5.3 Vòng lặp đợi Cloudflare cấp link URL
+          # 6.3 Đợi Cloudflare cấp link
           echo "Đang đợi Cloudflare cấp URL..."
           CF_URL=""
           for i in {1..30}; do
@@ -117,9 +117,8 @@ jobs:
           echo "========================================================================"
           echo ""
 
-          # Ghi link vào trang Summary của GitHub Actions
           echo "## 🎉 Máy ảo iOS Simulator đã sẵn sàng!" >> $GITHUB_STEP_SUMMARY
           echo "### 👉 [Bấm vào đây để mở Simulator trên trình duyệt]($CF_URL)" >> $GITHUB_STEP_SUMMARY
 
-          # 5.4 Giữ phiên làm việc 2 tiếng
+          # Giữ phiên làm việc 2 tiếng
           sleep 7200
