@@ -12,7 +12,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/serve-sim-src
-          key: serve-sim-macos14-v3
+          key: serve-sim-macos14-v5
 
       - name: 2. Kích hoạt Xcode 16 (Chỉ chạy khi chưa có Cache)
         if: steps.cache-serve-sim.outputs.cache-hit != 'true'
@@ -28,7 +28,7 @@ jobs:
         with:
           bun-version: latest
 
-      - name: 4. Clone, Patch & Build (Hỗ trợ kéo thả file .zip)
+      - name: 4. Clone, Patch & Build (Hỗ trợ kéo thả thông minh .ZIP / .IPA)
         if: steps.cache-serve-sim.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/EvanBacon/serve-sim.git /tmp/serve-sim-src
@@ -37,7 +37,7 @@ jobs:
           # 4.1 Sửa cờ swiftbuild -> native
           sed -i '' 's/--build-system swiftbuild/--build-system native/g' packages/serve-sim/Sources/SimNative/build.sh
 
-          # 4.2 Sửa lỗi Swift Concurrency (Task await)
+          # 4.2 Sửa lỗi Swift Concurrency
           node -e '
             const fs = require("fs");
             const file = "packages/serve-sim/Sources/SimNative/FrameCapture.swift";
@@ -49,7 +49,7 @@ jobs:
             fs.writeFileSync(file, content);
           '
 
-          # 4.3 Xóa dấu phẩy thừa trong mã nguồn Swift
+          # 4.3 Xóa dấu phẩy thừa trong file Swift
           node -e '
             const fs = require("fs");
             const path = require("path");
@@ -63,33 +63,38 @@ jobs:
             });
           '
 
-          # 4.4 Patch cho phép Kéo & Thả trực tiếp file .ZIP chứa App vào trình duyệt
+          # 4.4 Patch drop.ts: Tự động trích xuất thư mục .app từ bất kỳ file .zip hoặc .ipa nào
           node -e '
             const fs = require("fs");
             const dropFile = "packages/serve-sim/src/client/utils/drop.ts";
             let content = fs.readFileSync(dropFile, "utf8");
-            
-            // Cho phép nhận đuôi .zip
+
+            // 1. Nhận diện .zip và .ipa là app install
             content = content.replace(
               `if (fileExtension(file) === "ipa") return "ipa";`,
               `const ext = fileExtension(file); if (ext === "ipa" || ext === "zip") return "ipa";`
             );
 
-            // Tự động giải nén file .zip và tìm thư mục .app để simctl install
+            // 2. Giữ nguyên đuôi mở rộng thật của file
             content = content.replace(
-              `const cmd = kind === "ipa"\n      ? \`xcrun simctl install \${udid} \${tmpPath}\``,
-              `const cmd = kind === "ipa"\n      ? (ext === "zip" ? \`bash -c "TMP=\\\$(mktemp -d); unzip -q \${tmpPath} -d \\\$TMP; APP=\\\$(find \\\$TMP -maxdepth 2 -name \\"*.app\\" | head -n 1); if [ -n \\\\\\"\\\$APP\\\\\\" ]; then xcrun simctl install \${udid} \\\\\\"\\\$APP\\\\\\"; rm -rf \\\$TMP; else xcrun simctl install \${udid} \${tmpPath}; fi"\` : \`xcrun simctl install \${udid} \${tmpPath}\`)`
+              `const ext = kind === "ipa" ? "ipa" : fileExtension(file);`,
+              `const ext = fileExtension(file);`
             );
 
+            // 3. Tự động giải nén và quét tìm file .app bất kể cấu trúc thư mục
+            const oldCmd = `const cmd = kind === "ipa"\n      ? \`xcrun simctl install \${udid} \${tmpPath}\`\n      : \`xcrun simctl addmedia \${udid} \${tmpPath}\`;`;
+            const newCmd = `let cmd = \`xcrun simctl addmedia \${udid} \${tmpPath}\`;\n    if (kind === "ipa") {\n      cmd = \`bash -c "TMP_DIR=\\\$(mktemp -d); unzip -q -o \\"\${tmpPath}\\" -d \\"\$TMP_DIR\\" 2>/dev/null; APP=\\\$(find \\"\$TMP_DIR\\" -name \\"*.app\\" -type d | head -n 1); if [ -n \\\\\\"\\\$APP\\\\\\" ]; then xcrun simctl install \${udid} \\\\\\"\\\$APP\\\\\\"; rm -rf \\"\$TMP_DIR\\"; else rm -rf \\"\$TMP_DIR\\"; xcrun simctl install \${udid} \\"\${tmpPath}\\"; fi"\`;\n    }`;
+
+            content = content.replace(oldCmd, newCmd);
             fs.writeFileSync(dropFile, content);
-            console.log("--> [SUCCESS] Đã kích hoạt tính năng kéo thả file .ZIP trực tiếp!");
+            console.log("--> [SUCCESS] Đã cập nhật bộ trích xuất .app thông minh cho drop.ts!");
           '
 
           # 4.5 Cài đặt và build bản native
           bun install
           bun run packages/serve-sim/build.ts
 
-      - name: 5. Khởi động iPhone Simulator & Đợi Boot
+      - name: 5. Khởi động iPhone Simulator & Đợi Boot hoàn tất
         run: |
           UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
@@ -102,7 +107,7 @@ jobs:
 
       - name: 6. Chạy serve-sim & Mở Cloudflare Tunnel
         run: |
-          # 6.1 Khởi động serve-sim từ thư mục đã cache
+          # 6.1 Khởi động serve-sim từ bản build đã cache
           node /tmp/serve-sim-src/packages/serve-sim/dist/serve-sim.js --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
 
           # In log
@@ -114,7 +119,7 @@ jobs:
           chmod +x cloudflared
           ./cloudflared tunnel --url http://localhost:3200 --no-autoupdate > cf.log 2>&1 &
 
-          # 6.3 Đợi Cloudflare cấp link URL
+          # 6.3 Đợi Cloudflare cấp URL
           echo "Đang đợi Cloudflare cấp URL..."
           CF_URL=""
           for i in {1..30}; do
