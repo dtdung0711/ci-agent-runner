@@ -25,54 +25,30 @@ jobs:
 
       - name: 3. Khởi động Core Server & Mở Cloudflare Tunnel
         run: |
-          # 3.1 Cài đặt ffmpeg & idb-companion prebuilt chính thức v1.5.0.b1
+          # 3.1 Cài đặt ffmpeg & cliclick (cực nhanh, không lỗi)
           export HOMEBREW_NO_AUTO_UPDATE=1
-          brew install ffmpeg
+          brew install ffmpeg cliclick
 
-          echo "🚀 Tải idb-companion v1.5.0.b1 prebuilt..."
-          mkdir -p ~/idb-bin
-          curl -sL https://github.com/facebook/idb/releases/download/v1.5.0.b1/idb-companion.universal.tar.gz | tar -xz -C ~/idb-bin
-          chmod -R +x ~/idb-bin
-
-          # Đưa binary và resources vào các thư mục PATH
-          sudo mkdir -p /opt/homebrew/bin /usr/local/bin
-          sudo cp -rf ~/idb-bin/* /opt/homebrew/bin/ 2>/dev/null || true
-          sudo cp -rf ~/idb-bin/* /usr/local/bin/ 2>/dev/null || true
-          
-          # Tạo symlink hỗ trợ cả idb-companion lẫn idb_companion
-          sudo ln -sf /opt/homebrew/bin/idb_companion /opt/homebrew/bin/idb-companion 2>/dev/null || true
-          sudo ln -sf /usr/local/bin/idb_companion /usr/local/bin/idb-companion 2>/dev/null || true
-          sudo chmod +x /opt/homebrew/bin/idb* /usr/local/bin/idb* 2>/dev/null || true
-
-          # 3.2 Khởi chạy idb-companion cho Simulator
-          echo "🔌 Bật idb-companion cho UDID: $UDID"
-          COMPANION_BIN="/opt/homebrew/bin/idb_companion"
-          [ -f "$COMPANION_BIN" ] || COMPANION_BIN="/opt/homebrew/bin/idb-companion"
-          [ -f "$COMPANION_BIN" ] || COMPANION_BIN="$HOME/idb-bin/idb_companion"
-          
-          $COMPANION_BIN --udid "$UDID" > /tmp/companion.log 2>&1 &
-          sleep 2
-
-          # 3.3 Clone mã nguồn server vào ~/ios-bridge
+          # 3.2 Clone mã nguồn server vào ~/ios-bridge
           git clone --depth 1 https://github.com/dtdung0711/ios-bridge.git ~/ios-bridge
 
-          # 3.4 Cài đặt thư viện phụ thuộc
+          # 3.3 Cài đặt thư viện phụ thuộc
           python -m pip install --upgrade pip
           pip install -r ~/ios-bridge/requirements.txt
           pip install Pillow opencv-python aiortc av websockets aiohttp jinja2 python-multipart requests fb-idb psutil
 
-          # 3.5 Dọn dẹp tiến trình và file cache cũ
+          # 3.4 Dọn dẹp tiến trình và file cache
           lsof -ti:8000 | xargs kill -9 2>/dev/null || true
           rm -rf ~/.ios-bridge
 
-          # 3.6 Khởi chạy FastAPI Server
+          # 3.5 Khởi chạy FastAPI Server
           cd ~/ios-bridge
           PYTHONPATH=. nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/ios_bridge.log 2>&1 &
 
           # In log ra console GitHub Actions
           tail -f /tmp/ios_bridge.log &
 
-          # 3.7 Đợi và kiểm tra phản hồi từ server
+          # 3.6 Đợi server sẵn sàng
           echo "Đang đợi server sẵn sàng..."
           SERVER_READY=false
           for i in {1..30}; do
@@ -90,7 +66,7 @@ jobs:
             exit 1
           fi
 
-          # 3.8 Mở Cloudflare Tunnel
+          # 3.7 Mở Cloudflare Tunnel
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
           ./cloudflared tunnel --url http://localhost:8000 --no-autoupdate > cf.log 2>&1 &
@@ -106,5 +82,5 @@ jobs:
           echo "========================================================================"
           echo ""
 
-          # 3.9 Giữ tiến trình hoạt động
+          # 3.8 Giữ tiến trình hoạt động
           sleep 7200
