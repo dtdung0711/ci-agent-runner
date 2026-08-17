@@ -12,12 +12,15 @@ jobs:
         with:
           bun-version: latest
 
-      - name: 2. Clone serve-sim & Patch lỗi Swift Actor
+      - name: 2. Clone serve-sim & Patch lỗi build
         run: |
           git clone https://github.com/EvanBacon/serve-sim.git /tmp/serve-sim-src
           cd /tmp/serve-sim-src
 
-          # Patch lỗi assumeIsolated ở dòng 174-175 trong FrameCapture.swift
+          # 2.1 Patch lỗi swiftbuild -> native trong build.sh
+          sed -i '' 's/--build-system swiftbuild/--build-system native/g' packages/serve-sim/Sources/SimNative/build.sh
+
+          # 2.2 Patch lỗi assumeIsolated trong FrameCapture.swift
           python3 -c '
           path = "packages/serve-sim/Sources/SimNative/FrameCapture.swift"
           with open(path, "r") as f:
@@ -48,7 +51,7 @@ jobs:
               print("--> Không tìm thấy đoạn code cũ để replace, bỏ qua.")
           '
 
-          # Cài đặt và build bản native không bị crash
+          # 2.3 Cài đặt và build toàn bộ
           bun install
           bun run packages/serve-sim/build.ts
 
@@ -68,7 +71,7 @@ jobs:
           # Chạy bản serve-sim vừa build xong
           node /tmp/serve-sim-src/packages/serve-sim/dist/serve-sim.js --port 3200 --codec mjpeg --fit > /tmp/serve_sim.log 2>&1 &
 
-          # In log ra màn hình Action
+          # In log ra console
           tail -f /tmp/serve_sim.log &
 
           sleep 6
