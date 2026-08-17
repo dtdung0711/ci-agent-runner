@@ -20,10 +20,10 @@ jobs:
 
       - name: 2. Cài đặt Username và Password cho VNC / macOS
         run: |
-          # 1. Đặt mật khẩu đăng nhập hệ thống cho user 'runner'
-          echo "runner:123456" | sudo chpasswd
+          # 1. Đổi mật khẩu tài khoản macOS 'runner' thành '123456' (Dùng lệnh dscl của macOS)
+          sudo dscl . -passwd /Users/runner 123456
 
-          # 2. Phân toàn quyền Remote Desktop cho đích danh user 'runner'
+          # 2. Phân toàn quyền Remote Management cho user 'runner'
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate \
             -configure -access -on -users runner -privs -all \
@@ -49,11 +49,7 @@ jobs:
 
           echo ""
           echo "========================================================================"
-          echo "🎉 MÁY ẢO IPHONE TRÊN WEB ĐÃ CẤU HÌNH XONG TÀI KHOẢN!"
-          echo "👉 TÀI KHOẢN: runner"
-          echo "👉 MẬT KHẨU : 123456"
-          echo ""
-          echo "👉 BẤM LINK DƯỚI ĐÂY ĐỂ TỰ ĐỘNG ĐĂNG NHẬP VÀO SIMULATOR:"
+          echo "🎉 LINK TRUY CẬP ĐÃ SẴN SÀNG:"
           echo "$CF_URL/vnc.html?autoconnect=true&username=runner&password=123456"
           echo "========================================================================"
           echo ""
