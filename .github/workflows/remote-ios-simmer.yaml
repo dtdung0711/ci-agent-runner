@@ -1,0 +1,76 @@
+name: Remote iOS Simulator with Simmer
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-simulator:
+    runs-on: macos-14
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. Cài đặt Python 3.11
+      - name: Cài đặt Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 2. Khởi động Simulator iPhone 15
+      - name: Khởi động iPhone Simulator
+        run: |
+          UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
+          echo "Booting device ID: $UDID"
+          xcrun simctl boot "$UDID" || true
+          open -a Simulator
+
+      # 3. Cài đặt idb-companion, simmer và chạy server
+      - name: Chạy Simmer & Mở Cloudflare Tunnel
+        run: |
+          # 3.1 Cài idb-companion để điều khiển cảm ứng cho compat mode
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
+          brew tap facebook/fb
+          brew trust facebook/fb || true
+          brew install idb-companion || true
+          brew link --overwrite idb-companion || true
+
+          # 3.2 Cài đặt simmer trực tiếp từ GitHub
+          pip install --upgrade pip
+          pip install git+https://github.com/joshdholtz/simmer.git
+
+          # 3.3 Khởi động simmer ở chế độ compat (chuyên dụng cho máy ảo CI) trên cổng 4040
+          nohup simmer --port 4040 --mode compat --fps 20 --quality 75 > /tmp/simmer.log 2>&1 &
+
+          # In log ra màn hình console
+          tail -f /tmp/simmer.log &
+
+          # 3.4 Kiểm tra kết nối cổng 4040
+          echo "Đang đợi simmer khởi động..."
+          for i in {1..20}; do
+            if curl -s http://127.0.0.1:4040/ > /dev/null; then
+              echo "✅ SIMMER ĐÃ SẴN SÀNG TRÊN CỔNG 4040!"
+              break
+            fi
+            sleep 1
+          done
+
+          # 3.5 Tải và chạy Cloudflare Tunnel trỏ vào cổng 4040
+          curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
+          chmod +x cloudflared
+          ./cloudflared tunnel --url http://localhost:4040 --no-autoupdate > cf.log 2>&1 &
+
+          # Đợi Cloudflare cấp link
+          sleep 8
+          CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
+
+          echo ""
+          echo "========================================================================"
+          echo "🎉 MÁY ẢO IPHONE SIMMER ĐÃ LÊN SÓNG!"
+          echo "👉 TRUY CẬP TRỰC TIẾP:"
+          echo "$CF_URL"
+          echo "========================================================================"
+          echo ""
+
+          # 3.6 Giữ phiên làm việc 2 tiếng
+          sleep 7200
