@@ -1,0 +1,43 @@
+name: Remote iOS Simulator with serve-sim
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-simulator:
+    runs-on: macos-14
+    steps:
+      - name: 1. Khởi động iPhone Simulator
+        run: |
+          UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
+          echo "Booting device ID: $UDID"
+          xcrun simctl boot "$UDID" || true
+          open -a Simulator
+
+      - name: 2. Chạy serve-sim & Mở Cloudflare Tunnel
+        run: |
+          # 2.1 Chạy serve-sim trên cổng 3200 ngầm
+          npx -y serve-sim --port 3200 &
+
+          # Đợi 6 giây để server dựng xong
+          sleep 6
+
+          # 2.2 Tải và chạy Cloudflare Tunnel trỏ vào cổng 3200
+          curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
+          chmod +x cloudflared
+          ./cloudflared tunnel --url http://localhost:3200 --no-autoupdate > cf.log 2>&1 &
+
+          # Đợi Cloudflare cấp URL
+          sleep 8
+          CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
+
+          echo ""
+          echo "========================================================================"
+          echo "🎉 MÁY ẢO IPHONE SERVE-SIM ĐÃ SẴN SÀNG!"
+          echo "👉 TRUY CẬP ĐỂ TEST (Mở bằng Chrome/Edge/Điện thoại):"
+          echo "$CF_URL"
+          echo "========================================================================"
+          echo ""
+
+          # 2.3 Giữ phiên làm việc 2 tiếng
+          sleep 7200
