@@ -17,26 +17,38 @@ jobs:
           xcrun simctl boot "$UDID" || true
           open -a Simulator
 
-      - name: 2. Cài đặt Meta IDB & Server iOS Bridge
+      - name: 2. Cài đặt Meta IDB & Mã nguồn iOS Bridge
         run: |
-          # 2.1 Bỏ qua xác thực Tap Trust và cài idb-companion
+          # 2.1 Cài đặt idb-companion
           export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
           brew tap facebook/fb
           brew trust facebook/fb || true
           brew install idb-companion
 
-          # 2.2 Tạo Virtual Environment và cài đặt đầy đủ gói server
+          # 2.2 Clone mã nguồn server vào đúng vị trí ~/ios-bridge
+          git clone --depth 1 https://github.com/himanshkukreja/ios-bridge.git ~/ios-bridge
+
+          # 2.3 Tạo Virtual Environment và cài đặt đầy đủ package
           python3 -m venv /tmp/venv
           source /tmp/venv/bin/activate
           pip install --upgrade pip
-          pip install ios-bridge-cli fb-idb
+          pip install -r ~/ios-bridge/requirements.txt
+          pip install fb-idb ios-bridge-cli
 
-          # 2.3 Khởi động server
-          nohup ios-bridge start-server --host 0.0.0.0 --port 8000 > /tmp/ios_bridge.log 2>&1 &
-          
-          # Đợi server lên sóng và kiểm tra log
-          sleep 6
+          # 2.4 Chạy trực tiếp FastAPI Core Server của ios-bridge
+          cd ~/ios-bridge
+          nohup python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/ios_bridge.log 2>&1 &
+
+          # 2.5 Vòng lặp kiểm tra sức khỏe server (Health Check)
+          echo "Đang chờ server khởi động..."
+          for i in {1..20}; do
+            if curl -s http://127.0.0.1:8000/ > /dev/null; then
+              echo "✅ SERVER ĐÃ HOẠT ĐỘNG THÀNH CÔNG TRÊN PORT 8000!"
+              break
+            fi
+            sleep 1
+          done
           cat /tmp/ios_bridge.log
 
       - name: 3. Mở Cloudflare Tunnel & Lấy Link Web
@@ -51,8 +63,8 @@ jobs:
 
           echo ""
           echo "========================================================================"
-          echo "🎉 MÁY ẢO IPHONE ĐÃ CHẠY HOÀN TẤT!"
-          echo "👉 TRUY CẬP TRỰC TIẾP QUA LINK:"
+          echo "🎉 MÁY ẢO IPHONE TRÊN WEB ĐÃ SẴN SÀNG!"
+          echo "👉 BẤM VÀO LINK NÀY ĐỂ MỞ GIAO DIỆN TEST:"
           echo "$CF_URL"
           echo "========================================================================"
           echo ""
