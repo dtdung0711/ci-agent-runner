@@ -10,25 +10,39 @@ on:
 
 jobs:
   run-mac-agent:
-    runs-on: macos-15 # <-- Sử dụng macOS 15 Sequoia có đầy đủ Swift Runtime mới nhất
+    runs-on: macos-15
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. Cài đặt Node.js 22
-      - name: Cài đặt Node.js 22
+      # 1. Kích hoạt Xcode và cài Node.js 22
+      - name: Setup Môi trường
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      # 2. Khởi động trước iPhone 15
-      - name: Khởi động trước iPhone 15
+      - name: Kích hoạt Xcode Toolchain
         run: |
-          UDID=$(xcrun simctl list devices available | grep "iPhone 15 (" | head -n 1 | awk -F '[()]' '{print $2}')
-          echo "Booting device ID: $UDID"
-          xcrun simctl boot "$UDID" || true
+          sudo xcode-select -s /Applications/Xcode.app
+          echo "Xcode path: $(xcode-select -p)"
 
-      # 3. Tạo patch CPU
+      # 2. Tự động tìm và Boot iPhone có sẵn trên máy ảo
+      - name: Khởi động iPhone Simulator
+        run: |
+          echo "=== DANH SÁCH IPHONE KHẢ DỤNG ==="
+          xcrun simctl list devices available | grep "iPhone" || true
+          
+          # Lấy UDID và Tên của chiếc iPhone đầu tiên tìm thấy
+          UDID=$(xcrun simctl list devices available | grep "iPhone" | head -n 1 | awk -F '[()]' '{print $2}')
+          DEVICE_NAME=$(xcrun simctl list devices available | grep "$UDID" | head -n 1 | awk -F ' \\(' '{print $1}' | xargs)
+          
+          echo "Đang khởi động: $DEVICE_NAME ($UDID)"
+          xcrun simctl boot "$UDID" || true
+          
+          # Lưu tên thiết bị vào biến môi trường để dùng cho bước sau
+          echo "SELECTED_DEVICE=$DEVICE_NAME" >> $GITHUB_ENV
+
+      # 3. Tạo patch CPU để tránh lỗi ảo hóa hypervisor
       - name: Tạo CPU Patch
         run: |
           cat << 'EOF' > /tmp/patch.cjs
@@ -43,8 +57,8 @@ jobs:
           };
           EOF
 
-      # 4. Chạy Agent
-      - name: Chạy Tapflow Agent
+      # 4. Chạy duy nhất iOS Agent
+      - name: Chạy Tapflow iOS Agent
         env:
           TAPFLOW_RELAY_URL: ${{ secrets.TAPFLOW_RELAY_URL }}
           TAPFLOW_AGENT_TOKEN: ${{ secrets.TAPFLOW_AGENT_TOKEN }}
@@ -52,14 +66,15 @@ jobs:
         run: |
           npm install -g tapflow
 
-          echo "Đang kết nối Agent tới $TAPFLOW_RELAY_URL ..."
-          tapflow agent start --relay "$TAPFLOW_RELAY_URL" --token "$TAPFLOW_AGENT_TOKEN" --device "iPhone 15" &
+          echo "Đang kết nối iOS Agent với thiết bị: $SELECTED_DEVICE ..."
+          # Chạy chuyên biệt platform ios với thiết bị vừa tìm được
+          tapflow agent start --relay "$TAPFLOW_RELAY_URL" --token "$TAPFLOW_AGENT_TOKEN" --platform ios --device "$SELECTED_DEVICE" &
 
           MINUTES=${{ github.event.inputs.duration_minutes || 120 }}
           echo ""
           echo "========================================================================"
-          echo "🚀 Agent macOS 15 đã sẵn sàng!"
-          echo "👉 Hãy vào Web Dashboard và chọn iPhone 15 để xem màn hình mượt mà."
+          echo "🚀 iOS Agent ($SELECTED_DEVICE) đã kết nối thành công về Relay!"
+          echo "👉 Hãy vào Web Dashboard để điều khiển iPhone ngay."
           echo "⏱️ Phiên làm việc sẽ giữ trong $MINUTES phút..."
           echo "========================================================================"
           echo ""
