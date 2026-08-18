@@ -11,19 +11,15 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # 1. Tải và cài đặt Baguette v0.1.92
+      # 1. Cài đặt Baguette v0.1.92
       - name: Cài đặt Baguette
         run: |
-          echo "Đang tải Baguette v0.1.92..."
           mkdir -p /tmp/baguette-pkg
           curl -sL https://github.com/tddworks/baguette/releases/download/v0.1.92/baguette_v0.1.92_macOS_arm64.tar.gz | tar -xz -C /tmp/baguette-pkg
-          
-          # Tìm thư mục chứa binary và bundle
           SRC_DIR=$(find /tmp/baguette-pkg -type f -name "Baguette" -exec dirname {} \; | head -n 1)
           sudo mkdir -p /opt/baguette
           sudo cp -R "$SRC_DIR"/* /opt/baguette/
           sudo chmod -R 755 /opt/baguette
-          
           echo "/opt/baguette" >> $GITHUB_PATH
 
       # 2. Cài đặt Cloudflare Tunnel
@@ -41,16 +37,142 @@ jobs:
           echo "Booting Device UDID: $UDID"
           xcrun simctl boot "$UDID" || true
 
-      # 4. Khởi chạy Baguette Server (Đã fix biến BAGUETTE_WEB_DIR) & Tunnel
+      # -------------------------------------------------------------
+      # 4. TẠO TRANG WEB UPLOAD & CÀI ĐẶT APP (PORT 8422)
+      # -------------------------------------------------------------
+      - name: Khởi tạo Web Upload & App Manager
+        run: |
+          cat << 'EOF' > /tmp/app_manager.py
+          from http.server import HTTPServer, BaseHTTPRequestHandler
+          import cgi, os, subprocess, zipfile, shutil, json, urllib.parse
+
+          UDID = os.environ.get("UDID", "")
+
+          class Handler(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  parsed_path = urllib.parse.urlparse(self.path)
+                  
+                  # API Khởi chạy App
+                  if parsed_path.path == '/launch':
+                      query = urllib.parse.parse_qs(parsed_path.query)
+                      bundle_id = query.get('id', [''])[0]
+                      if bundle_id:
+                          os.system(f"xcrun simctl launch '{UDID}' '{bundle_id}'")
+                      self.send_response(302)
+                      self.send_header('Location', '/')
+                      self.end_headers()
+                      return
+
+                  # Giao diện chính Web Upload
+                  self.send_response(200)
+                  self.send_header('Content-type', 'text/html; charset=utf-8')
+                  self.end_headers()
+
+                  # Lấy danh sách app đã cài
+                  apps_output = subprocess.getoutput(f"xcrun simctl listapps '{UDID}'")
+                  app_buttons = ""
+                  try:
+                      # Tìm các bundle ID của app người dùng cài
+                      for line in apps_output.split('\n'):
+                          if "CFBundleIdentifier = " in line:
+                              bid = line.split('"')[1]
+                              if not bid.startswith("com.apple."):
+                                  app_buttons += f"<div style='display:flex; justify-content:space-between; align-items:center; background:#f9f9f9; padding:10px 15px; border-radius:8px; margin-bottom:8px;'><span>📱 <b>{bid}</b></span><a href='/launch?id={bid}' style='background:#34c759; color:white; padding:6px 14px; border-radius:6px; text-decoration:none; font-weight:bold;'>Mở App</a></div>"
+                  except:
+                      pass
+
+                  if not app_buttons:
+                      app_buttons = "<p style='color:#888; font-size:14px;'>Chưa có ứng dụng nào được cài.</p>"
+
+                  html = f"""
+                  <!DOCTYPE html>
+                  <html>
+                  <head>
+                      <title>iOS App Manager</title>
+                      <meta name="viewport" content="width=device-width, initial-scale=1">
+                      <style>
+                          body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f2f2f7; margin: 0; padding: 20px; }}
+                          .card {{ max-width: 500px; margin: 0 auto 20px; background: white; border-radius: 14px; padding: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); }}
+                          h2, h3 {{ margin-top: 0; color: #1c1c1e; }}
+                          input[type="file"] {{ width: 100%; box-sizing: border-box; padding: 12px; border: 2px dashed #007aff; border-radius: 8px; margin: 15px 0; background: #f8fbff; }}
+                          button {{ width: 100%; background: #007aff; color: white; border: none; padding: 14px; font-size: 16px; font-weight: bold; border-radius: 10px; cursor: pointer; }}
+                          button:hover {{ background: #0063cc; }}
+                      </style>
+                  </head>
+                  <body>
+                      <div class="card">
+                          <h2>📲 Cài đặt App mới vào iPhone</h2>
+                          <p style="color: #666; font-size: 14px;">Chọn file <b>.zip</b> hoặc <b>.app</b> để nạp trực tiếp vào máy ảo:</p>
+                          <form enctype="multipart/form-data" method="post">
+                              <input type="file" name="file" required>
+                              <button type="submit">Cài đặt vào iPhone ngay</button>
+                          </form>
+                      </div>
+
+                      <div class="card">
+                          <h3>🚀 Các App đang có trên máy</h3>
+                          {app_buttons}
+                      </div>
+                  </body>
+                  </html>
+                  """
+                  self.wfile.write(html.encode())
+
+              def do_POST(self):
+                  form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={'REQUEST_METHOD':'POST'})
+                  fileitem = form['file']
+                  if fileitem.filename:
+                      save_path = f"/tmp/upload_{fileitem.filename}"
+                      with open(save_path, 'wb') as f:
+                          f.write(fileitem.file.read())
+                      
+                      # Nếu là file zip thì giải nén
+                      if save_path.endswith('.zip'):
+                          extract_dir = "/tmp/extracted_app"
+                          shutil.rmtree(extract_dir, ignore_errors=True)
+                          with zipfile.ZipFile(save_path, 'r') as zip_ref:
+                              zip_ref.extractall(extract_dir)
+                          app_path = subprocess.getoutput(f"find {extract_dir} -name '*.app' -type d | head -n 1")
+                      else:
+                          app_path = save_path
+                      
+                      # Cài đặt vào Simulator
+                      os.system(f"xcrun simctl install '{UDID}' '{app_path}'")
+                      
+                      # Tìm bundle ID và tự động bật app
+                      bundle_id = subprocess.getoutput(f"/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' '{app_path}/Info.plist' 2>/dev/null")
+                      if bundle_id:
+                          os.system(f"xcrun simctl launch '{UDID}' '{bundle_id}'")
+
+                      self.send_response(200)
+                      self.send_header('Content-type', 'text/html; charset=utf-8')
+                      self.end_headers()
+                      self.wfile.write(f"""
+                      <body style="font-family:sans-serif; text-align:center; padding:50px; background:#f2f2f7;">
+                          <div style="max-width:400px; margin:auto; background:white; padding:30px; border-radius:12px;">
+                              <h2 style="color:#34c759;">🎉 Cài đặt thành công!</h2>
+                              <p>App <b>{bundle_id}</b> đã được cài và tự động mở lên iPhone.</p>
+                              <a href="/" style="display:inline-block; margin-top:15px; background:#007aff; color:white; padding:10px 20px; border-radius:8px; text-decoration:none;">Quay lại Trang Cài App</a>
+                          </div>
+                      </body>
+                      """.encode())
+
+          HTTPServer(('0.0.0.0', 8422), Handler).serve_forever()
+          EOF
+
+          # Khởi chạy server upload ngầm cổng 8422
+          UDID="$UDID" python3 /tmp/app_manager.py > /dev/null 2>&1 &
+
+      # -------------------------------------------------------------
+      # 5. KHỞI CHẠY BAGUETTE VÀ MỞ 2 ĐƯỜNG LINK TUNNEL
+      # -------------------------------------------------------------
       - name: Khởi chạy Baguette Serve & Tunnel
         run: |
-          # BẮT BUỘC: Khai báo BAGUETTE_WEB_DIR để server nạp đúng giao diện Web và tính năng upload
+          # 5.1 Khởi chạy Baguette cổng 8421
           export BAGUETTE_WEB_DIR="/opt/baguette/Baguette_Baguette.bundle/Web"
-
-          # Chạy server với port 8421
           nohup /opt/baguette/Baguette serve --port 8421 --allowed-hosts '*.trycloudflare.com' > /tmp/baguette.log 2>&1 &
 
-          echo "Đang đợi Baguette server mở cổng 8421..."
+          echo "Đang đợi Baguette server sẵn sàng..."
           for i in {1..25}; do
             if curl -s http://127.0.0.1:8421/simulators > /dev/null; then
               echo "✅ BAGUETTE SERVER ĐÃ SẴN SÀNG!"
@@ -59,15 +181,17 @@ jobs:
             sleep 1
           done
 
-          # Mở Cloudflare Tunnel
-          /opt/baguette/cloudflared tunnel --url http://localhost:8421 --no-autoupdate > /tmp/cf.log 2>&1 &
+          # 5.2 Mở 2 Cloudflare Tunnel riêng biệt: 1 cho Baguette, 1 cho Web Upload
+          /opt/baguette/cloudflared tunnel --url http://localhost:8421 --no-autoupdate > /tmp/cf_baguette.log 2>&1 &
+          /opt/baguette/cloudflared tunnel --url http://localhost:8422 --no-autoupdate > /tmp/cf_uploader.log 2>&1 &
 
-          # Chờ lấy link trycloudflare.com
-          echo "Đang lấy link Cloudflare Tunnel..."
-          CF_URL=""
+          echo "Đang lấy link Cloudflare..."
+          URL_STREAM=""
+          URL_UPLOAD=""
           for i in {1..30}; do
-            CF_URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' /tmp/cf.log | head -n 1)
-            if [ -n "$CF_URL" ]; then
+            URL_STREAM=$(grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' /tmp/cf_baguette.log | head -n 1)
+            URL_UPLOAD=$(grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' /tmp/cf_uploader.log | head -n 1)
+            if [ -n "$URL_STREAM" ] && [ -n "$URL_UPLOAD" ]; then
               break
             fi
             sleep 1
@@ -75,15 +199,14 @@ jobs:
 
           echo ""
           echo "========================================================================"
-          echo "🎉 MÁY ẢO IPHONE HEADLESS (60 FPS - BAGUETTE) ĐÃ SẴN SÀNG!"
-          echo "👉 TRANG STREAM & ĐIỀU KHIỂN : $CF_URL/simulators"
-          echo "👉 TRANG DEVICE FARM (MULTI) : $CF_URL/farm"
+          echo "🎉 MÁY ẢO IPHONE 60 FPS & CỔNG CÀI APP ĐÃ SẴN SÀNG!"
+          echo "👉 LINK 1 - MÀN HÌNH ĐIỀU KHIỂN IPHONE : $URL_STREAM/simulators"
+          echo "👉 LINK 2 - TRANG UPLOAD & CÀI ĐẶT APP : $URL_UPLOAD"
           echo "========================================================================"
           echo ""
 
-      # 5. Giữ phiên làm việc
+      # 6. Giữ phiên làm việc
       - name: Giữ phiên làm việc
         run: |
-          echo "Runner đang mở. Xem log trực tiếp:"
           tail -f /tmp/baguette.log &
           sleep 7200
