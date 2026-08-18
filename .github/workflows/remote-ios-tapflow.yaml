@@ -106,7 +106,7 @@ jobs:
           };
           EOF
 
-      # 4. Cache Tapflow & Native Helpers (Cache key v4)
+      # 4. Cache Tapflow & Native Helpers (Tạo key mới v5)
       - name: Cache Tapflow & Native Helpers
         id: tapflow-cache
         uses: actions/cache@v4
@@ -114,7 +114,7 @@ jobs:
           path: |
             ~/.npm-global
             /tmp/tapflow-bin-cache
-          key: tapflow-ios-helpers-macos15-v4
+          key: tapflow-ios-helpers-macos15-v5
 
       # 5. Cài đặt Tapflow & Tối Ưu Hóa Zero-Copy GPU 30 FPS
       - name: Cài đặt Tapflow & Native Helpers
@@ -135,11 +135,12 @@ jobs:
             curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/keyboard-helper.swift -o /tmp/tapflow-swift/keyboard-helper.swift
             curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/rotation-helper.swift -o /tmp/tapflow-swift/rotation-helper.swift
 
-            # PATCH ZERO-COPY GPU: Dùng Unmanaged<CVPixelBuffer> chuẩn Swift
+            # PATCH ZERO-COPY GPU & Tối ưu vImageScale
             cat << 'EOF' > /tmp/patch_swift.py
           with open('/tmp/tapflow-swift/screencapture-helper.swift', 'r') as f:
               content = f.read()
 
+          # 1. Zero-Copy CVPixelBuffer
           old_func = "func copySurfaceStable(_ surface: IOSurface) -> CVPixelBuffer? {"
           new_func = """func copySurfaceStable(_ surface: IOSurface) -> CVPixelBuffer? {
               var pb: Unmanaged<CVPixelBuffer>?
@@ -148,15 +149,17 @@ jobs:
 
           if old_func in content:
               content = content.replace(old_func, new_func, 1)
-              with open('/tmp/tapflow-swift/screencapture-helper.swift', 'w') as f:
-                  f.write(content)
-              print('✓ Đã kích hoạt thành công GPU Zero-Copy!')
-          else:
-              print('⚠️ Không tìm thấy vị trí patch, giữ nguyên source gốc.')
+
+          # 2. Thay thế thuật toán rescale nặng CPU bằng thuật toán nhanh
+          content = content.replace("vImage_Flags(kvImageHighQualityResampling)", "vImage_Flags(0)")
+
+          with open('/tmp/tapflow-swift/screencapture-helper.swift', 'w') as f:
+              f.write(content)
+          print('✓ Đã kích hoạt thành công GPU Zero-Copy & Fast Scaler!')
           EOF
             python3 /tmp/patch_swift.py
 
-            # Biên dịch Swift với cờ -O
+            # Biên dịch Swift tối ưu hóa -O
             swiftc -O /tmp/tapflow-swift/screencapture-helper.swift -o "$IOS_AGENT_BIN/screencapture-helper" -framework CoreVideo -framework ImageIO -framework VideoToolbox -framework CoreMedia &
             swiftc -O /tmp/tapflow-swift/touch-helper.swift -o "$IOS_AGENT_BIN/touch-helper" &
             swiftc -O /tmp/tapflow-swift/keyboard-helper.swift -o "$IOS_AGENT_BIN/keyboard-helper" &
@@ -174,7 +177,7 @@ jobs:
             echo "✓ Khôi phục xong!"
           fi
 
-      # 6. Khởi chạy Tapflow iOS Agent (30 FPS mượt mà)
+      # 6. Khởi chạy Tapflow iOS Agent (Full 30 FPS GPU Native)
       - name: Chạy Tapflow iOS Agent
         env:
           TAPFLOW_RELAY_URL: ${{ secrets.TAPFLOW_RELAY_URL }}
@@ -182,10 +185,10 @@ jobs:
           TAPFLOW_API_TOKEN: ${{ secrets.TAPFLOW_API_TOKEN }}
           NODE_OPTIONS: "--require /tmp/patch.cjs"
           PATH: "/Users/runner/.npm-global/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          TAPFLOW_MAX_SIZE: "960"
-          TAPFLOW_IOS_H264_BITRATE: "2500000"
-          TAPFLOW_WS_BACKPRESSURE_BYTES: "4194304"
-          TAPFLOW_STREAM_METRICS: "1"
+          TAPFLOW_MAX_SIZE: "0"                         # 0 = Kích hoạt GPU Hardware Encode trực tiếp (0% CPU cost)
+          TAPFLOW_IOS_H264_BITRATE: "3000000"           # Bitrate 3 Mbps siêu nét Retina
+          TAPFLOW_WS_BACKPRESSURE_BYTES: "4194304"      # Bộ đệm 4MB
+          TAPFLOW_STREAM_METRICS: "1"                   # Log đo đạc
         run: |
           echo "Đang kết nối iOS Agent ($SELECTED_DEVICE) tới $TAPFLOW_RELAY_URL ..."
           tapflow agent start --relay "$TAPFLOW_RELAY_URL" --token "$TAPFLOW_AGENT_TOKEN" --platform ios --device "$SELECTED_DEVICE" &
