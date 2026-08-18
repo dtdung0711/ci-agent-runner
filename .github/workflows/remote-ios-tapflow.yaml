@@ -163,9 +163,9 @@ jobs:
           TAPFLOW_API_TOKEN: ${{ secrets.TAPFLOW_API_TOKEN }}
           NODE_OPTIONS: "--require /tmp/patch.cjs"
           PATH: "/Users/runner/.npm-global/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          #TAPFLOW_MAX_SIZE: "960"
-          #TAPFLOW_IOS_H264_BITRATE: "2500000"
-          #TAPFLOW_WS_BACKPRESSURE_BYTES: "4194304"
+          # TAPFLOW_MAX_SIZE: "960"
+          # TAPFLOW_IOS_H264_BITRATE: "2500000"
+          TAPFLOW_WS_BACKPRESSURE_BYTES: "8388608"
         run: |
           echo "Đang kết nối iOS Agent ($SELECTED_DEVICE) tới $TAPFLOW_RELAY_URL ..."
           tapflow agent start --relay "$TAPFLOW_RELAY_URL" --token "$TAPFLOW_AGENT_TOKEN" --platform ios --device "$SELECTED_DEVICE" &
