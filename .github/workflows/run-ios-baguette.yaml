@@ -22,12 +22,15 @@ jobs:
           sudo chmod -R 755 /opt/baguette
           echo "/opt/baguette" >> $GITHUB_PATH
 
-      # 2. Cài đặt Cloudflare Tunnel
-      - name: Cài đặt Cloudflare Tunnel
+      # 2. Cài đặt Cloudflare Tunnel & Flask
+      - name: Cài đặt Cloudflare Tunnel & Flask
         run: |
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
           sudo mv cloudflared /opt/baguette/
+          
+          # Cài Flask cho Web Uploader
+          pip3 install --break-system-packages flask || pip3 install flask
 
       # 3. Khởi động iOS Simulator Headless
       - name: Khởi động iOS Simulator
@@ -38,96 +41,63 @@ jobs:
           xcrun simctl boot "$UDID" || true
 
       # -------------------------------------------------------------
-      # 4. TẠO TRANG WEB UPLOAD & CÀI ĐẶT APP (PORT 8422)
+      # 4. TẠO TRANG WEB UPLOAD & CÀI ĐẶT APP BẰNG FLASK (PORT 8422)
       # -------------------------------------------------------------
-      - name: Khởi tạo Web Upload & App Manager
+      - name: Khởi tạo Web Upload (Flask)
         run: |
           cat << 'EOF' > /tmp/app_manager.py
-          from http.server import HTTPServer, BaseHTTPRequestHandler
-          import cgi, os, subprocess, zipfile, shutil, json, urllib.parse
+          import os, subprocess, zipfile, shutil
+          from flask import Flask, request, redirect, render_template_string
 
+          app = Flask(__name__)
           UDID = os.environ.get("UDID", "")
 
-          class Handler(BaseHTTPRequestHandler):
-              def do_GET(self):
-                  parsed_path = urllib.parse.urlparse(self.path)
-                  
-                  # API Khởi chạy App
-                  if parsed_path.path == '/launch':
-                      query = urllib.parse.parse_qs(parsed_path.query)
-                      bundle_id = query.get('id', [''])[0]
-                      if bundle_id:
-                          os.system(f"xcrun simctl launch '{UDID}' '{bundle_id}'")
-                      self.send_response(302)
-                      self.send_header('Location', '/')
-                      self.end_headers()
-                      return
+          HTML = """
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>iOS App Manager</title>
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <style>
+                  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f2f2f7; margin: 0; padding: 20px; }
+                  .card { max-width: 480px; margin: 0 auto 20px; background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
+                  h2, h3 { margin-top: 0; color: #1c1c1e; }
+                  input[type="file"] { width: 100%; box-sizing: border-box; padding: 16px; border: 2px dashed #007aff; border-radius: 12px; margin: 15px 0; background: #f8fbff; cursor: pointer; }
+                  button { width: 100%; background: #007aff; color: white; border: none; padding: 14px; font-size: 16px; font-weight: bold; border-radius: 12px; cursor: pointer; }
+                  button:active { transform: scale(0.98); }
+                  .app-item { display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; padding: 12px 16px; border-radius: 10px; margin-bottom: 8px; border: 1px solid #e9ecef; }
+                  .btn-launch { background: #34c759; color: white; padding: 8px 16px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px; }
+              </style>
+          </head>
+          <body>
+              <div class="card">
+                  <h2>📲 Cài đặt App vào iPhone</h2>
+                  <p style="color: #666; font-size: 14px; margin-bottom: 0;">Chọn file <b>.zip</b> hoặc <b>.app</b> để nạp vào máy ảo:</p>
+                  <form method="post" enctype="multipart/form-data">
+                      <input type="file" name="file" required>
+                      <button type="submit">🚀 Cài đặt vào iPhone ngay</button>
+                  </form>
+              </div>
 
-                  # Giao diện chính Web Upload
-                  self.send_response(200)
-                  self.send_header('Content-type', 'text/html; charset=utf-8')
-                  self.end_headers()
+              <div class="card">
+                  <h3>📱 Danh sách App trên máy ảo</h3>
+                  {{ app_list | safe }}
+              </div>
+          </body>
+          </html>
+          """
 
-                  # Lấy danh sách app đã cài
-                  apps_output = subprocess.getoutput(f"xcrun simctl listapps '{UDID}'")
-                  app_buttons = ""
-                  try:
-                      # Tìm các bundle ID của app người dùng cài
-                      for line in apps_output.split('\n'):
-                          if "CFBundleIdentifier = " in line:
-                              bid = line.split('"')[1]
-                              if not bid.startswith("com.apple."):
-                                  app_buttons += f"<div style='display:flex; justify-content:space-between; align-items:center; background:#f9f9f9; padding:10px 15px; border-radius:8px; margin-bottom:8px;'><span>📱 <b>{bid}</b></span><a href='/launch?id={bid}' style='background:#34c759; color:white; padding:6px 14px; border-radius:6px; text-decoration:none; font-weight:bold;'>Mở App</a></div>"
-                  except:
-                      pass
-
-                  if not app_buttons:
-                      app_buttons = "<p style='color:#888; font-size:14px;'>Chưa có ứng dụng nào được cài.</p>"
-
-                  html = f"""
-                  <!DOCTYPE html>
-                  <html>
-                  <head>
-                      <title>iOS App Manager</title>
-                      <meta name="viewport" content="width=device-width, initial-scale=1">
-                      <style>
-                          body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f2f2f7; margin: 0; padding: 20px; }}
-                          .card {{ max-width: 500px; margin: 0 auto 20px; background: white; border-radius: 14px; padding: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); }}
-                          h2, h3 {{ margin-top: 0; color: #1c1c1e; }}
-                          input[type="file"] {{ width: 100%; box-sizing: border-box; padding: 12px; border: 2px dashed #007aff; border-radius: 8px; margin: 15px 0; background: #f8fbff; }}
-                          button {{ width: 100%; background: #007aff; color: white; border: none; padding: 14px; font-size: 16px; font-weight: bold; border-radius: 10px; cursor: pointer; }}
-                          button:hover {{ background: #0063cc; }}
-                      </style>
-                  </head>
-                  <body>
-                      <div class="card">
-                          <h2>📲 Cài đặt App mới vào iPhone</h2>
-                          <p style="color: #666; font-size: 14px;">Chọn file <b>.zip</b> hoặc <b>.app</b> để nạp trực tiếp vào máy ảo:</p>
-                          <form enctype="multipart/form-data" method="post">
-                              <input type="file" name="file" required>
-                              <button type="submit">Cài đặt vào iPhone ngay</button>
-                          </form>
-                      </div>
-
-                      <div class="card">
-                          <h3>🚀 Các App đang có trên máy</h3>
-                          {app_buttons}
-                      </div>
-                  </body>
-                  </html>
-                  """
-                  self.wfile.write(html.encode())
-
-              def do_POST(self):
-                  form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={'REQUEST_METHOD':'POST'})
-                  fileitem = form['file']
-                  if fileitem.filename:
-                      save_path = f"/tmp/upload_{fileitem.filename}"
-                      with open(save_path, 'wb') as f:
-                          f.write(fileitem.file.read())
+          @app.route("/", methods=["GET", "POST"])
+          def index():
+              global UDID
+              if request.method == "POST":
+                  file = request.files.get("file")
+                  if file and file.filename:
+                      save_path = f"/tmp/{file.filename}"
+                      file.save(save_path)
                       
                       # Nếu là file zip thì giải nén
-                      if save_path.endswith('.zip'):
+                      if save_path.endswith(".zip"):
                           extract_dir = "/tmp/extracted_app"
                           shutil.rmtree(extract_dir, ignore_errors=True)
                           with zipfile.ZipFile(save_path, 'r') as zip_ref:
@@ -135,36 +105,56 @@ jobs:
                           app_path = subprocess.getoutput(f"find {extract_dir} -name '*.app' -type d | head -n 1")
                       else:
                           app_path = save_path
-                      
+
                       # Cài đặt vào Simulator
                       os.system(f"xcrun simctl install '{UDID}' '{app_path}'")
-                      
+
                       # Tìm bundle ID và tự động bật app
                       bundle_id = subprocess.getoutput(f"/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' '{app_path}/Info.plist' 2>/dev/null")
                       if bundle_id:
                           os.system(f"xcrun simctl launch '{UDID}' '{bundle_id}'")
 
-                      self.send_response(200)
-                      self.send_header('Content-type', 'text/html; charset=utf-8')
-                      self.end_headers()
-                      self.wfile.write(f"""
+                      return f"""
                       <body style="font-family:sans-serif; text-align:center; padding:50px; background:#f2f2f7;">
-                          <div style="max-width:400px; margin:auto; background:white; padding:30px; border-radius:12px;">
+                          <div style="max-width:400px; margin:auto; background:white; padding:30px; border-radius:16px; box-shadow:0 4px 15px rgba(0,0,0,0.08);">
                               <h2 style="color:#34c759;">🎉 Cài đặt thành công!</h2>
                               <p>App <b>{bundle_id}</b> đã được cài và tự động mở lên iPhone.</p>
-                              <a href="/" style="display:inline-block; margin-top:15px; background:#007aff; color:white; padding:10px 20px; border-radius:8px; text-decoration:none;">Quay lại Trang Cài App</a>
+                              <a href="/" style="display:inline-block; margin-top:15px; background:#007aff; color:white; padding:12px 24px; border-radius:10px; text-decoration:none; font-weight:bold;">Quay lại Trang Cài App</a>
                           </div>
                       </body>
-                      """.encode())
+                      """
 
-          HTTPServer(('0.0.0.0', 8422), Handler).serve_forever()
+              # Quét danh sách app đang cài
+              apps_output = subprocess.getoutput(f"xcrun simctl listapps '{UDID}'")
+              items = []
+              for line in apps_output.split('\n'):
+                  if "CFBundleIdentifier = " in line:
+                      try:
+                          bid = line.split('"')[1]
+                          if not bid.startswith("com.apple."):
+                              items.append(f"<div class='app-item'><span>📦 <b>{bid}</b></span><a class='btn-launch' href='/launch?id={bid}'>Mở App</a></div>")
+                      except:
+                          pass
+
+              app_list = "".join(items) if items else "<p style='color:#888; font-size:14px;'>Chưa có ứng dụng nào được cài.</p>"
+              return render_template_string(HTML, app_list=app_list)
+
+          @app.route("/launch")
+          def launch():
+              bundle_id = request.args.get("id")
+              if bundle_id:
+                  os.system(f"xcrun simctl launch '{UDID}' '{bundle_id}'")
+              return redirect("/")
+
+          if __name__ == "__main__":
+              app.run(host="0.0.0.0", port=8422)
           EOF
 
           # Khởi chạy server upload ngầm cổng 8422
-          UDID="$UDID" python3 /tmp/app_manager.py > /dev/null 2>&1 &
+          nohup python3 /tmp/app_manager.py > /tmp/flask.log 2>&1 &
 
       # -------------------------------------------------------------
-      # 5. KHỞI CHẠY BAGUETTE VÀ MỞ 2 ĐƯỜNG LINK TUNNEL
+      # 5. KHỞI CHẠY BAGUETTE & CLOUDFLARE TUNNEL
       # -------------------------------------------------------------
       - name: Khởi chạy Baguette Serve & Tunnel
         run: |
@@ -172,16 +162,17 @@ jobs:
           export BAGUETTE_WEB_DIR="/opt/baguette/Baguette_Baguette.bundle/Web"
           nohup /opt/baguette/Baguette serve --port 8421 --allowed-hosts '*.trycloudflare.com' > /tmp/baguette.log 2>&1 &
 
-          echo "Đang đợi Baguette server sẵn sàng..."
+          # Đợi cả 2 server (8421 và 8422) sẵn sàng
+          echo "Đang đợi Baguette (8421) và App Manager (8422)..."
           for i in {1..25}; do
-            if curl -s http://127.0.0.1:8421/simulators > /dev/null; then
-              echo "✅ BAGUETTE SERVER ĐÃ SẴN SÀNG!"
+            if curl -s http://127.0.0.1:8421/simulators > /dev/null && curl -s http://127.0.0.1:8422/ > /dev/null; then
+              echo "✅ CẢ 2 SERVER ĐÃ SẴN SÀNG 100%!"
               break
             fi
             sleep 1
           done
 
-          # 5.2 Mở 2 Cloudflare Tunnel riêng biệt: 1 cho Baguette, 1 cho Web Upload
+          # 5.2 Mở 2 Tunnel riêng biệt
           /opt/baguette/cloudflared tunnel --url http://localhost:8421 --no-autoupdate > /tmp/cf_baguette.log 2>&1 &
           /opt/baguette/cloudflared tunnel --url http://localhost:8422 --no-autoupdate > /tmp/cf_uploader.log 2>&1 &
 
