@@ -8,73 +8,79 @@ jobs:
     runs-on: macos-15
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # 1. Chọn phiên bản Xcode 16 mới nhất trên máy
-      - name: Chọn Xcode mới nhất
+      # 1. Kiểm tra Cache (Nếu đã có binary từ lần chạy trước thì dùng luôn)
+      - name: Phục hồi Baguette từ Cache
+        id: cache-baguette
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/baguette
+          key: baguette-bin-v1-macos15
+
+      # 2. Chọn Xcode mới nhất
+      - name: Cấu hình Xcode
+        if: steps.cache-baguette.outputs.cache-hit != 'true'
         run: |
           LATEST_XCODE=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n 1)
           if [ -n "$LATEST_XCODE" ]; then
-            echo "Selecting Xcode: $LATEST_XCODE"
             sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
           fi
           xcodebuild -version
-          swift --version
 
-      # 2. Clone, Patch Tools Version và Build Baguette
-      - name: Clone & Build Baguette
+      # 3. Build & Vá lỗi Swift Concurrency (Chỉ chạy khi chưa có Cache)
+      - name: Build Baguette
+        if: steps.cache-baguette.outputs.cache-hit != 'true'
         run: |
           echo "Cloning tddworks/baguette..."
           git clone https://github.com/tddworks/baguette.git /tmp/baguette-src
           cd /tmp/baguette-src
 
-          # Patch tools version từ 6.1 về 6.0 để tương thích với Swift của runner
-          sed -i '' 's/swift-tools-version: 6.1/swift-tools-version: 6.0/g' Package.swift || true
+          # Vá lỗi Swift 6 Strict Concurrency ở file DeviceStudioLighting.swift
+          sed -i '' 's/private static let environment/nonisolated(unsafe) private static let environment/g' Sources/Baguette/Infrastructure/Render/DeviceStudioLighting.swift || true
 
-          echo "Building Baguette..."
+          echo "Bắt đầu build..."
           chmod +x ./build.sh
           ./build.sh
 
-          # Đưa binary baguette vào PATH
-          sudo cp .build/release/baguette /usr/local/bin/baguette || sudo cp .build/arm64-apple-macosx/release/baguette /usr/local/bin/baguette
-          
-          # Kiểm tra
-          baguette --help
+          # Đưa binary ra PATH và cấp quyền
+          sudo cp .build/arm64-apple-macosx/release/baguette /usr/local/bin/baguette || sudo cp .build/release/baguette /usr/local/bin/baguette
+          sudo chmod +x /usr/local/bin/baguette
 
-      # 3. Tải Cloudflare Tunnel
-      - name: Tải Cloudflare Tunnel
+      # 4. Tải Cloudflare Tunnel
+      - name: Cài đặt Cloudflare Tunnel
         run: |
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
           sudo mv cloudflared /usr/local/bin/
 
-      # 4. Khởi động trước 1 thiết bị iOS Simulator
-      - name: Khởi động iOS Simulator
+      # 5. Khởi động iOS Simulator Headless
+      - name: Khởi động Simulator
         run: |
           UDID=$(xcrun simctl list devices available | grep -m 1 "iPhone" | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
           xcrun simctl boot "$UDID" || true
 
-      # 5. Khởi chạy Baguette Server & Mở Tunnel
-      - name: Chạy Baguette Serve & Mở Tunnel
+      # 6. Chạy Baguette Serve & Mở Tunnel
+      - name: Chạy Baguette Serve & Tunnel
         run: |
-          # Chạy server baguette với cờ allowed-hosts
+          # Khởi chạy Baguette
           nohup baguette serve --port 8421 --allowed-hosts '*.trycloudflare.com' > /tmp/baguette.log 2>&1 &
 
-          echo "Đang đợi Baguette server khởi động..."
+          echo "Đang đợi Baguette server sẵn sàng..."
           for i in {1..30}; do
             if curl -s http://127.0.0.1:8421/simulators > /dev/null; then
-              echo "✅ BAGUETTE SERVER ĐÃ SẴN SÀNG!"
+              echo "✅ BAGUETTE SERVER ĐÃ SẴN SÀNG TẠI CỔNG 8421!"
               break
             fi
             sleep 1
           done
 
-          # Mở Cloudflare Tunnel chuyển tiếp cổng 8421
+          # Mở Cloudflare Tunnel
           cloudflared tunnel --url http://localhost:8421 --no-autoupdate > cf.log 2>&1 &
 
-          # Đợi 8 giây lấy link công khai
+          # Đợi lấy link Cloudflare
           sleep 8
           CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
 
@@ -82,13 +88,13 @@ jobs:
           echo "========================================================================"
           echo "🎉 MÁY ẢO IPHONE HEADLESS (60 FPS - BAGUETTE) ĐÃ SẴN SÀNG!"
           echo "👉 TRANG STREAM & ĐIỀU KHIỂN : $CF_URL/simulators"
-          echo "👉 TRANG DEVICE FARM (MULTI) : $CF_URL/farm"
+          echo "👉 TRANG DEVICE FARM         : $CF_URL/farm"
           echo "========================================================================"
           echo ""
 
-      # 6. Giữ phiên làm việc
+      # 7. Giữ phiên làm việc
       - name: Giữ phiên làm việc
         run: |
-          echo "Runner đang mở. Xem log chi tiết bên dưới:"
+          echo "Runner đang chạy. Log chi tiết Baguette:"
           tail -f /tmp/baguette.log &
           sleep 7200
