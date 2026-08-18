@@ -8,35 +8,38 @@ jobs:
     runs-on: macos-15
 
     steps:
-      - name: Checkout Repo hiện tại
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. Chọn Xcode 16 mới nhất có sẵn trên macOS 15
-      - name: Chọn Xcode
+      # 1. Chọn phiên bản Xcode 16 mới nhất trên máy
+      - name: Chọn Xcode mới nhất
         run: |
-          sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || true
+          LATEST_XCODE=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$LATEST_XCODE" ]; then
+            echo "Selecting Xcode: $LATEST_XCODE"
+            sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
+          fi
           xcodebuild -version
+          swift --version
 
-      # 2. Clone và Build Baguette trực tiếp từ Source
+      # 2. Clone, Patch Tools Version và Build Baguette
       - name: Clone & Build Baguette
         run: |
           echo "Cloning tddworks/baguette..."
           git clone https://github.com/tddworks/baguette.git /tmp/baguette-src
           cd /tmp/baguette-src
 
-          echo "Building Baguette (Swift Release)..."
-          # Chạy script build của dự án
-          if [ -f "./build.sh" ]; then
-            chmod +x ./build.sh
-            ./build.sh
-          else
-            make
-          fi
+          # Patch tools version từ 6.1 về 6.0 để tương thích với Swift của runner
+          sed -i '' 's/swift-tools-version: 6.1/swift-tools-version: 6.0/g' Package.swift || true
 
-          # Copy binary vào PATH hệ thống
-          sudo cp .build/release/baguette /usr/local/bin/baguette || sudo cp .build/arm64-apple-macosx/release/baguette /usr/local/bin/baguette || sudo cp baguette /usr/local/bin/baguette
+          echo "Building Baguette..."
+          chmod +x ./build.sh
+          ./build.sh
+
+          # Đưa binary baguette vào PATH
+          sudo cp .build/release/baguette /usr/local/bin/baguette || sudo cp .build/arm64-apple-macosx/release/baguette /usr/local/bin/baguette
           
-          # Kiểm tra xem lệnh baguette đã hoạt động chưa
+          # Kiểm tra
           baguette --help
 
       # 3. Tải Cloudflare Tunnel
@@ -56,7 +59,7 @@ jobs:
       # 5. Khởi chạy Baguette Server & Mở Tunnel
       - name: Chạy Baguette Serve & Mở Tunnel
         run: |
-          # Chạy server với port 8421
+          # Chạy server baguette với cờ allowed-hosts
           nohup baguette serve --port 8421 --allowed-hosts '*.trycloudflare.com' > /tmp/baguette.log 2>&1 &
 
           echo "Đang đợi Baguette server khởi động..."
@@ -68,10 +71,10 @@ jobs:
             sleep 1
           done
 
-          # Mở Cloudflare Tunnel
+          # Mở Cloudflare Tunnel chuyển tiếp cổng 8421
           cloudflared tunnel --url http://localhost:8421 --no-autoupdate > cf.log 2>&1 &
 
-          # Đợi 8 giây lấy URL
+          # Đợi 8 giây lấy link công khai
           sleep 8
           CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
 
@@ -79,11 +82,11 @@ jobs:
           echo "========================================================================"
           echo "🎉 MÁY ẢO IPHONE HEADLESS (60 FPS - BAGUETTE) ĐÃ SẴN SÀNG!"
           echo "👉 TRANG STREAM & ĐIỀU KHIỂN : $CF_URL/simulators"
-          echo "👉 TRANG DEVICE FARM         : $CF_URL/farm"
+          echo "👉 TRANG DEVICE FARM (MULTI) : $CF_URL/farm"
           echo "========================================================================"
           echo ""
 
-      # 6. Giữ phiên làm việc và in log trực tiếp
+      # 6. Giữ phiên làm việc
       - name: Giữ phiên làm việc
         run: |
           echo "Runner đang mở. Xem log chi tiết bên dưới:"
