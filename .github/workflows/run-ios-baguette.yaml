@@ -18,14 +18,13 @@ jobs:
           mkdir -p /tmp/baguette-pkg
           curl -sL https://github.com/tddworks/baguette/releases/download/v0.1.92/baguette_v0.1.92_macOS_arm64.tar.gz | tar -xz -C /tmp/baguette-pkg
           
+          # Tìm thư mục chứa binary và bundle
           SRC_DIR=$(find /tmp/baguette-pkg -type f -name "Baguette" -exec dirname {} \; | head -n 1)
           sudo mkdir -p /opt/baguette
           sudo cp -R "$SRC_DIR"/* /opt/baguette/
           sudo chmod -R 755 /opt/baguette
           
           echo "/opt/baguette" >> $GITHUB_PATH
-          export PATH="/opt/baguette:$PATH"
-          /opt/baguette/Baguette --help
 
       # 2. Cài đặt Cloudflare Tunnel
       - name: Cài đặt Cloudflare Tunnel
@@ -38,13 +37,17 @@ jobs:
       - name: Khởi động iOS Simulator
         run: |
           UDID=$(xcrun simctl list devices available | grep -m 1 "iPhone" | awk -F '[()]' '{print $2}')
+          echo "UDID=$UDID" >> $GITHUB_ENV
           echo "Booting Device UDID: $UDID"
           xcrun simctl boot "$UDID" || true
 
-      # 4. Khởi chạy Server & Mở Tunnel (Có vòng lặp chờ lấy link chuẩn)
+      # 4. Khởi chạy Baguette Server (Đã fix biến BAGUETTE_WEB_DIR) & Tunnel
       - name: Khởi chạy Baguette Serve & Tunnel
         run: |
-          # 4.1 Khởi chạy Baguette
+          # BẮT BUỘC: Khai báo BAGUETTE_WEB_DIR để server nạp đúng giao diện Web và tính năng upload
+          export BAGUETTE_WEB_DIR="/opt/baguette/Baguette_Baguette.bundle/Web"
+
+          # Chạy server với port 8421
           nohup /opt/baguette/Baguette serve --port 8421 --allowed-hosts '*.trycloudflare.com' > /tmp/baguette.log 2>&1 &
 
           echo "Đang đợi Baguette server mở cổng 8421..."
@@ -56,11 +59,11 @@ jobs:
             sleep 1
           done
 
-          # 4.2 Khởi chạy Cloudflare Tunnel
+          # Mở Cloudflare Tunnel
           /opt/baguette/cloudflared tunnel --url http://localhost:8421 --no-autoupdate > /tmp/cf.log 2>&1 &
 
-          # 4.3 Vòng lặp chờ Cloudflare cấp URL (tối đa 30 giây)
-          echo "Đang đợi Cloudflare Tunnel cấp URL..."
+          # Chờ lấy link trycloudflare.com
+          echo "Đang lấy link Cloudflare Tunnel..."
           CF_URL=""
           for i in {1..30}; do
             CF_URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' /tmp/cf.log | head -n 1)
@@ -70,12 +73,6 @@ jobs:
             sleep 1
           done
 
-          # In log nếu chưa lấy được
-          if [ -z "$CF_URL" ]; then
-            echo "Log Cloudflared:"
-            cat /tmp/cf.log
-          fi
-
           echo ""
           echo "========================================================================"
           echo "🎉 MÁY ẢO IPHONE HEADLESS (60 FPS - BAGUETTE) ĐÃ SẴN SÀNG!"
@@ -84,9 +81,9 @@ jobs:
           echo "========================================================================"
           echo ""
 
-      # 5. Giữ phiên làm việc và hiển thị log trực tiếp
+      # 5. Giữ phiên làm việc
       - name: Giữ phiên làm việc
         run: |
-          echo "Runner đang mở. Log Baguette:"
+          echo "Runner đang mở. Xem log trực tiếp:"
           tail -f /tmp/baguette.log &
           sleep 7200
