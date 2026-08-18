@@ -179,6 +179,15 @@ jobs:
           fi
 
       # 6. Khởi chạy Tapflow iOS Agent (Full Constant 30 FPS)
+      # Đo tốc độ mạng từ Mac Agent (Mỹ) về Relay Server
+      - name: Đo độ trễ mạng (Ping & Latency Test)
+        run: |
+          echo "=== 1. ĐO PING TỪ MAC AGENT VỀ RELAY ==="
+          ping -c 5 tapflow.bug.io.vn || true
+          echo "=== 2. ĐO THỜI GIAN KẾT NỐI HTTPS ==="
+          curl -k -w "DNS: %{time_namelookup}s | Connect: %{time_connect}s | TLS: %{time_appconnect}s | Tổng: %{time_total}s\n" \
+               -o /dev/null -s "https://tapflow.bug.io.vn"
+
       - name: Chạy Tapflow iOS Agent
         env:
           TAPFLOW_RELAY_URL: ${{ secrets.TAPFLOW_RELAY_URL }}
