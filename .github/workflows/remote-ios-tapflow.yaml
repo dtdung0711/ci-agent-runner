@@ -62,22 +62,29 @@ jobs:
                 if (typeof arg === 'string' && (arg.endsWith('.zip') || arg.endsWith('.tar.gz') || arg.endsWith('.tgz'))) {
                   if (!fs.existsSync(arg)) {
                     const fileName = path.basename(arg);
-                    const relayUrl = (process.env.TAPFLOW_RELAY_URL || '').replace(/\/$/, '');
-                    const token = process.env.TAPFLOW_AGENT_TOKEN || '';
-                    if (relayUrl) {
-                      const httpUrl = `${relayUrl}/uploads/builds/${fileName}`;
-                      const localDest = `/tmp/downloaded-${fileName}`;
-                      console.log(`[tapflow-patch] Đang tải build từ VPS: ${httpUrl} -> ${localDest}`);
-                      try {
-                        const authHeader = token ? `-H "Authorization: Bearer ${token}"` : '';
-                        cp.execSync(`curl -sL ${authHeader} "${httpUrl}" -o "${localDest}"`);
-                        if (fs.existsSync(localDest) && fs.statSync(localDest).size > 0) {
-                          args[i] = localDest;
-                          console.log(`[tapflow-patch] ✓ Đã tải xong file build (${fs.statSync(localDest).size} bytes)!`);
-                        }
-                      } catch (err) {
-                        console.error(`[tapflow-patch] Lỗi khi tải build:`, err.message);
+                    let relayUrl = (process.env.TAPFLOW_RELAY_URL || '').trim().replace(/\/$/, '');
+                    relayUrl = relayUrl.replace(/^wss:\/\//i, 'https://').replace(/^ws:\/\//i, 'http://');
+                    if (!relayUrl.startsWith('http://') && !relayUrl.startsWith('https://')) {
+                      relayUrl = 'https://' + relayUrl;
+                    }
+
+                    // Ưu tiên dùng API Token để tải file build
+                    const token = process.env.TAPFLOW_API_TOKEN || process.env.TAPFLOW_AGENT_TOKEN || '';
+                    const httpUrl = `${relayUrl}/uploads/builds/${fileName}`;
+                    const localDest = `/tmp/downloaded-${fileName}`;
+                    
+                    console.log(`[tapflow-patch] Đang tải build từ: ${httpUrl} -> ${localDest}`);
+                    try {
+                      const authHeader = token ? `-H "Authorization: Bearer ${token}"` : '';
+                      const curlCmd = `curl -k -sL -f ${authHeader} "${httpUrl}" -o "${localDest}"`;
+                      cp.execSync(curlCmd, { stdio: 'pipe' });
+                      
+                      if (fs.existsSync(localDest) && fs.statSync(localDest).size > 0) {
+                        args[i] = localDest;
+                        console.log(`[tapflow-patch] ✓ Đã tải xong file build (${fs.statSync(localDest).size} bytes)!`);
                       }
+                    } catch (err) {
+                      console.error(`[tapflow-patch] Lỗi khi tải build:`, err.stderr ? err.stderr.toString() : err.message);
                     }
                   }
                   break;
@@ -139,6 +146,7 @@ jobs:
         env:
           TAPFLOW_RELAY_URL: ${{ secrets.TAPFLOW_RELAY_URL }}
           TAPFLOW_AGENT_TOKEN: ${{ secrets.TAPFLOW_AGENT_TOKEN }}
+          TAPFLOW_API_TOKEN: ${{ secrets.TAPFLOW_API_TOKEN }}
           NODE_OPTIONS: "--require /tmp/patch.cjs"
           PATH: "/Users/runner/.npm-global/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
           TAPFLOW_MAX_SIZE: "960"
