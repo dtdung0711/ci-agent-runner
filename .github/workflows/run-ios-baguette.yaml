@@ -5,27 +5,33 @@ on:
 
 jobs:
   run-baguette:
-    # Bắt buộc dùng runner Apple Silicon (arm64)
-    runs-on: macos-14
+    # BẮT BUỘC: macos-15 (Sequoia) để tương thích với Xcode & Baguette
+    runs-on: macos-15
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. Cài đặt Baguette & Cloudflared qua Homebrew
+      # 1. Cài đặt Baguette & Cloudflared
       - name: Cài đặt Baguette & Cloudflared
         run: |
           export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_INSTALL_CLEANUP=1
+          export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
 
-          # Cài đặt baguette (Apple Silicon native)
+          # Cài đặt qua Homebrew trên macOS 15
           brew tap tddworks/baguette https://github.com/tddworks/baguette.git || true
           brew install baguette || true
 
-          # Nếu brew tap chưa có, fallback build/tải trực tiếp
+          # Nếu Homebrew chưa nhận, tải trực tiếp release binary từ GitHub
           if ! command -v baguette &> /dev/null; then
-            echo "Cài đặt baguette via brew tap..."
-            brew install tddworks/tap/baguette || brew install baguette
+            echo "Homebrew chưa có binary, tải trực tiếp từ GitHub Releases..."
+            GH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+            gh release download --repo tddworks/baguette --pattern "*macos*" --output baguette.tar.gz || true
+            if [ -f baguette.tar.gz ]; then
+              tar -xzf baguette.tar.gz
+              sudo mv baguette /opt/homebrew/bin/ || sudo mv baguette /usr/local/bin/
+            fi
           fi
 
           # Tải cloudflared arm64
@@ -35,22 +41,22 @@ jobs:
       # 2. Khởi động trước 1 thiết bị iOS Simulator
       - name: Khởi động iOS Simulator
         run: |
-          # Tìm iPhone 15 hoặc thiết bị bất kỳ có sẵn
+          # Tìm và boot thiết bị iPhone có sẵn
           UDID=$(xcrun simctl list devices available | grep -m 1 "iPhone" | awk -F '[()]' '{print $2}')
           echo "Booting device ID: $UDID"
           
-          # Dùng lệnh boot của baguette hoặc simctl (không cần chạy 'open -a Simulator')
-          baguette boot --udid "$UDID" || xcrun simctl boot "$UDID" || true
+          # Boot simulator ở chế độ headless
+          xcrun simctl boot "$UDID" || true
 
-      # 3. Khởi chạy Baguette Server & Cloudflare Tunnel
+      # 3. Khởi chạy Baguette Server & Mở Cloudflare Tunnel
       - name: Chạy Baguette Serve & Mở Tunnel
         run: |
-          # QUAN TRỌNG: Cần cờ --allowed-hosts '*.trycloudflare.com' để tránh lỗi 403 Forbidden Origin khi đi qua tunnel
+          # Cần cờ --allowed-hosts '*.trycloudflare.com' để không bị 403 Forbidden Origin
           nohup baguette serve --port 8421 --allowed-hosts '*.trycloudflare.com' > /tmp/baguette.log 2>&1 &
 
-          # Đợi server baguette sẵn sàng
+          # Đợi server baguette khởi động
           echo "Đang đợi Baguette server khởi động..."
-          for i in {1..20}; do
+          for i in {1..25}; do
             if curl -s http://127.0.0.1:8421/simulators > /dev/null; then
               echo "✅ BAGUETTE SERVER ĐÃ SẴN SÀNG TẠI CỔNG 8421!"
               break
@@ -58,24 +64,24 @@ jobs:
             sleep 1
           done
 
-          # Chạy Cloudflare Tunnel trỏ tới cổng 8421 của Baguette
+          # Chạy Cloudflare Tunnel trỏ vào cổng 8421
           ./cloudflared tunnel --url http://localhost:8421 --no-autoupdate > cf.log 2>&1 &
 
-          # Đợi 8 giây để lấy URL trycloudflare.com
+          # Đợi lấy link Cloudflare
           sleep 8
           CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
 
           echo ""
           echo "========================================================================"
           echo "🎉 MÁY ẢO IPHONE HEADLESS (60 FPS - BAGUETTE) ĐÃ SẴN SÀNG!"
-          echo "👉 TRANG QUẢN LÝ / STREAM: $CF_URL/simulators"
-          echo "👉 MULTI-DEVICE FARM      : $CF_URL/farm"
+          echo "👉 TRANG STREAM & ĐIỀU KHIỂN : $CF_URL/simulators"
+          echo "👉 TRANG DEVICE FARM (MULTI) : $CF_URL/farm"
           echo "========================================================================"
           echo ""
 
       # 4. Giữ phiên hoạt động (2 tiếng)
       - name: Giữ phiên làm việc
         run: |
-          echo "Runner đang mở. Xem log Baguette realtime:"
+          echo "Runner đang mở. Log chi tiết Baguette:"
           tail -f /tmp/baguette.log &
           sleep 7200
