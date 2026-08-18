@@ -18,20 +18,13 @@ jobs:
           mkdir -p /tmp/baguette-pkg
           curl -sL https://github.com/tddworks/baguette/releases/download/v0.1.92/baguette_v0.1.92_macOS_arm64.tar.gz | tar -xz -C /tmp/baguette-pkg
           
-          # Tìm chính xác thư mục chứa binary
           SRC_DIR=$(find /tmp/baguette-pkg -type f -name "Baguette" -exec dirname {} \; | head -n 1)
-          echo "Đã tìm thấy file tại: $SRC_DIR"
-          
-          # Cài đặt nguyên vẹn vào /opt/baguette
           sudo mkdir -p /opt/baguette
           sudo cp -R "$SRC_DIR"/* /opt/baguette/
           sudo chmod -R 755 /opt/baguette
           
-          # Thêm vào PATH hệ thống
           echo "/opt/baguette" >> $GITHUB_PATH
           export PATH="/opt/baguette:$PATH"
-          
-          echo "✅ Kiểm tra Baguette thành công:"
           /opt/baguette/Baguette --help
 
       # 2. Cài đặt Cloudflare Tunnel
@@ -48,14 +41,13 @@ jobs:
           echo "Booting Device UDID: $UDID"
           xcrun simctl boot "$UDID" || true
 
-      # 4. Khởi chạy Server & Mở Tunnel
+      # 4. Khởi chạy Server & Mở Tunnel (Có vòng lặp chờ lấy link chuẩn)
       - name: Khởi chạy Baguette Serve & Tunnel
         run: |
-          # Chạy server baguette với cờ allowed-hosts
+          # 4.1 Khởi chạy Baguette
           nohup /opt/baguette/Baguette serve --port 8421 --allowed-hosts '*.trycloudflare.com' > /tmp/baguette.log 2>&1 &
 
-          # Đợi server sẵn sàng
-          echo "Đang đợi Baguette server khởi động..."
+          echo "Đang đợi Baguette server mở cổng 8421..."
           for i in {1..25}; do
             if curl -s http://127.0.0.1:8421/simulators > /dev/null; then
               echo "✅ BAGUETTE SERVER ĐÃ SẴN SÀNG!"
@@ -64,12 +56,25 @@ jobs:
             sleep 1
           done
 
-          # Mở Cloudflare Tunnel trỏ tới cổng 8421
-          /opt/baguette/cloudflared tunnel --url http://localhost:8421 --no-autoupdate > cf.log 2>&1 &
+          # 4.2 Khởi chạy Cloudflare Tunnel
+          /opt/baguette/cloudflared tunnel --url http://localhost:8421 --no-autoupdate > /tmp/cf.log 2>&1 &
 
-          # Đợi 8 giây lấy link trycloudflare.com
-          sleep 8
-          CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
+          # 4.3 Vòng lặp chờ Cloudflare cấp URL (tối đa 30 giây)
+          echo "Đang đợi Cloudflare Tunnel cấp URL..."
+          CF_URL=""
+          for i in {1..30}; do
+            CF_URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' /tmp/cf.log | head -n 1)
+            if [ -n "$CF_URL" ]; then
+              break
+            fi
+            sleep 1
+          done
+
+          # In log nếu chưa lấy được
+          if [ -z "$CF_URL" ]; then
+            echo "Log Cloudflared:"
+            cat /tmp/cf.log
+          fi
 
           echo ""
           echo "========================================================================"
@@ -82,6 +87,6 @@ jobs:
       # 5. Giữ phiên làm việc và hiển thị log trực tiếp
       - name: Giữ phiên làm việc
         run: |
-          echo "Runner đang mở. Xem log trực tiếp:"
+          echo "Runner đang mở. Log Baguette:"
           tail -f /tmp/baguette.log &
           sleep 7200
