@@ -106,7 +106,7 @@ jobs:
           };
           EOF
 
-      # 4. Cache Tapflow & Native Helpers (Tạo key mới v4)
+      # 4. Cache Tapflow & Native Helpers (Cache key v4)
       - name: Cache Tapflow & Native Helpers
         id: tapflow-cache
         uses: actions/cache@v4
@@ -136,24 +136,25 @@ jobs:
             curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/rotation-helper.swift -o /tmp/tapflow-swift/rotation-helper.swift
 
             # PATCH ZERO-COPY GPU: Dùng Unmanaged<CVPixelBuffer> chuẩn Swift
-            python3 -c "
-            with open('/tmp/tapflow-swift/screencapture-helper.swift', 'r') as f:
-                content = f.read()
+            cat << 'EOF' > /tmp/patch_swift.py
+          with open('/tmp/tapflow-swift/screencapture-helper.swift', 'r') as f:
+              content = f.read()
 
-            old_func = '''func copySurfaceStable(_ surface: IOSurface) -> CVPixelBuffer? {'''
-            new_func = '''func copySurfaceStable(_ surface: IOSurface) -> CVPixelBuffer? {
-    var pb: Unmanaged<CVPixelBuffer>?
-    let status = CVPixelBufferCreateWithIOSurface(kCFAllocatorDefault, surface, nil, &pb)
-    if status == noErr, let pb = pb { return pb.takeRetainedValue() }'''
+          old_func = "func copySurfaceStable(_ surface: IOSurface) -> CVPixelBuffer? {"
+          new_func = """func copySurfaceStable(_ surface: IOSurface) -> CVPixelBuffer? {
+              var pb: Unmanaged<CVPixelBuffer>?
+              let status = CVPixelBufferCreateWithIOSurface(kCFAllocatorDefault, surface, nil, &pb)
+              if status == noErr, let pb = pb { return pb.takeRetainedValue() }"""
 
-            if old_func in content:
-                content = content.replace(old_func, new_func)
-                with open('/tmp/tapflow-swift/screencapture-helper.swift', 'w') as f:
-                    f.write(content)
-                print('✓ Đã kích hoạt thành công GPU Zero-Copy!')
-            else:
-                print('⚠️ Không tìm thấy vị trí patch, giữ nguyên source gốc.')
-            "
+          if old_func in content:
+              content = content.replace(old_func, new_func, 1)
+              with open('/tmp/tapflow-swift/screencapture-helper.swift', 'w') as f:
+                  f.write(content)
+              print('✓ Đã kích hoạt thành công GPU Zero-Copy!')
+          else:
+              print('⚠️ Không tìm thấy vị trí patch, giữ nguyên source gốc.')
+          EOF
+            python3 /tmp/patch_swift.py
 
             # Biên dịch Swift với cờ -O
             swiftc -O /tmp/tapflow-swift/screencapture-helper.swift -o "$IOS_AGENT_BIN/screencapture-helper" -framework CoreVideo -framework ImageIO -framework VideoToolbox -framework CoreMedia &
@@ -173,7 +174,7 @@ jobs:
             echo "✓ Khôi phục xong!"
           fi
 
-      # 6. Khởi chạy Tapflow iOS Agent (Đầy đủ 30 FPS mượt mà)
+      # 6. Khởi chạy Tapflow iOS Agent (30 FPS mượt mà)
       - name: Chạy Tapflow iOS Agent
         env:
           TAPFLOW_RELAY_URL: ${{ secrets.TAPFLOW_RELAY_URL }}
