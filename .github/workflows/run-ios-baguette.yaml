@@ -11,20 +11,31 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # 1. Tải và cài đặt Baguette v0.1.92 (kèm bundle tài nguyên)
+      # 1. Tải và cài đặt Baguette v0.1.92
       - name: Cài đặt Baguette
         run: |
           echo "Đang tải Baguette v0.1.92..."
-          curl -sL https://github.com/tddworks/baguette/releases/download/v0.1.92/baguette_v0.1.92_macOS_arm64.tar.gz | tar -xz
+          # Đảm bảo các thư mục bin tồn tại
+          sudo mkdir -p /usr/local/bin /opt/homebrew/bin
           
-          # Copy cả file binary Baguette và bundle tài nguyên vào /usr/local/bin
-          sudo cp -r baguette-*-macOS-arm64/* /usr/local/bin/
+          # Tải và giải nén vào thư mục tạm
+          mkdir -p /tmp/baguette-pkg
+          curl -sL https://github.com/tddworks/baguette/releases/download/v0.1.92/baguette_v0.1.92_macOS_arm64.tar.gz | tar -xz -C /tmp/baguette-pkg
           
-          # Tạo symlink chữ thường 'baguette' để tiện gọi lệnh
+          # Tìm chính xác thư mục chứa binary và bundle
+          SRC_DIR=$(find /tmp/baguette-pkg -type f -name "Baguette" -exec dirname {} \; | head -n 1)
+          echo "Đã tìm thấy file tại: $SRC_DIR"
+          
+          # Copy cả file thực thi và bundle tài nguyên vào PATH
+          sudo cp -R "$SRC_DIR"/* /usr/local/bin/
+          sudo cp -R "$SRC_DIR"/* /opt/homebrew/bin/ || true
+          
+          # Tạo symlink chữ thường 'baguette'
           sudo ln -sf /usr/local/bin/Baguette /usr/local/bin/baguette || true
-          sudo chmod +x /usr/local/bin/Baguette /usr/local/bin/baguette
+          sudo ln -sf /opt/homebrew/bin/Baguette /opt/homebrew/bin/baguette || true
+          sudo chmod +x /usr/local/bin/Baguette /usr/local/bin/baguette /opt/homebrew/bin/Baguette /opt/homebrew/bin/baguette 2>/dev/null || true
           
-          echo "✅ Kiểm tra Baguette:"
+          echo "✅ Kiểm tra Baguette thành công:"
           baguette --help
 
       # 2. Cài đặt Cloudflare Tunnel
@@ -32,7 +43,7 @@ jobs:
         run: |
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
           chmod +x cloudflared
-          sudo mv cloudflared /usr/local/bin/
+          sudo mv cloudflared /usr/local/bin/ || sudo mv cloudflared /opt/homebrew/bin/
 
       # 3. Khởi động iOS Simulator Headless
       - name: Khởi động iOS Simulator
@@ -41,7 +52,7 @@ jobs:
           echo "Booting Device UDID: $UDID"
           xcrun simctl boot "$UDID" || true
 
-      # 4. Khởi chạy Server & Cloudflare Tunnel
+      # 4. Khởi chạy Server & Mở Tunnel
       - name: Khởi chạy Baguette Serve & Tunnel
         run: |
           # Chạy server baguette ngầm trên cổng 8421
@@ -49,7 +60,7 @@ jobs:
 
           # Đợi server sẵn sàng
           echo "Đang đợi Baguette server khởi động..."
-          for i in {1..20}; do
+          for i in {1..25}; do
             if curl -s http://127.0.0.1:8421/simulators > /dev/null; then
               echo "✅ BAGUETTE SERVER ĐÃ SẴN SÀNG!"
               break
@@ -57,7 +68,7 @@ jobs:
             sleep 1
           done
 
-          # Mở Cloudflare Tunnel
+          # Mở Cloudflare Tunnel trỏ tới cổng 8421
           cloudflared tunnel --url http://localhost:8421 --no-autoupdate > cf.log 2>&1 &
 
           # Đợi 8 giây lấy link trycloudflare.com
