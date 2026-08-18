@@ -34,11 +34,16 @@ jobs:
           xcrun simctl boot "$UDID" || true
           echo "SELECTED_DEVICE=$DEVICE_NAME" >> $GITHUB_ENV
 
-      # 3. Tạo patch CPU
-      - name: Tạo CPU Patch
+      # 3. Tạo Patch: Fix CPU 100% & Tự động kéo file build từ VPS về
+      - name: Tạo CPU & Remote Build Patch
         run: |
           cat << 'EOF' > /tmp/patch.cjs
           const os = require('os');
+          const fs = require('fs');
+          const path = require('path');
+          const cp = require('child_process');
+
+          // A. Fix CPU 100%
           const origCpus = os.cpus;
           os.cpus = function() {
             const cpus = origCpus.call(os);
@@ -47,9 +52,43 @@ jobs:
               times: { user: 150, nice: 0, sys: 50, idle: 800, irq: 0 }
             }));
           };
+
+          // B. Tự động đồng bộ file build từ VPS về GitHub Actions
+          const origSpawnSync = cp.spawnSync;
+          cp.spawnSync = function(cmd, args, opts) {
+            if ((cmd === 'unzip' || cmd === 'tar') && Array.isArray(args)) {
+              for (let i = 0; i < args.length; i++) {
+                const arg = args[i];
+                if (typeof arg === 'string' && (arg.endsWith('.zip') || arg.endsWith('.tar.gz') || arg.endsWith('.tgz'))) {
+                  if (!fs.existsSync(arg)) {
+                    const fileName = path.basename(arg);
+                    const relayUrl = (process.env.TAPFLOW_RELAY_URL || '').replace(/\/$/, '');
+                    const token = process.env.TAPFLOW_AGENT_TOKEN || '';
+                    if (relayUrl) {
+                      const httpUrl = `${relayUrl}/uploads/builds/${fileName}`;
+                      const localDest = `/tmp/downloaded-${fileName}`;
+                      console.log(`[tapflow-patch] Đang tải build từ VPS: ${httpUrl} -> ${localDest}`);
+                      try {
+                        const authHeader = token ? `-H "Authorization: Bearer ${token}"` : '';
+                        cp.execSync(`curl -sL ${authHeader} "${httpUrl}" -o "${localDest}"`);
+                        if (fs.existsSync(localDest) && fs.statSync(localDest).size > 0) {
+                          args[i] = localDest;
+                          console.log(`[tapflow-patch] ✓ Đã tải xong file build (${fs.statSync(localDest).size} bytes)!`);
+                        }
+                      } catch (err) {
+                        console.error(`[tapflow-patch] Lỗi khi tải build:`, err.message);
+                      }
+                    }
+                  }
+                  break;
+                }
+              }
+            }
+            return origSpawnSync.call(cp, cmd, args, opts);
+          };
           EOF
 
-      # 4. Cache Tapflow & Native Helpers (Tiết kiệm thời gian)
+      # 4. Cache Tapflow & Native Helpers
       - name: Cache Tapflow & Native Helpers
         id: tapflow-cache
         uses: actions/cache@v4
@@ -57,9 +96,9 @@ jobs:
           path: |
             ~/.npm-global
             /tmp/tapflow-bin-cache
-          key: tapflow-ios-helpers-macos15-v1
+          key: tapflow-ios-helpers-macos15-v2
 
-      # 5. Cài đặt hoặc Khôi phục từ Cache
+      # 5. Cài đặt Tapflow & Native Helpers
       - name: Cài đặt Tapflow & Native Helpers
         run: |
           mkdir -p ~/.npm-global
@@ -67,19 +106,17 @@ jobs:
           export PATH="$HOME/.npm-global/bin:$PATH"
 
           if [ "${{ steps.tapflow-cache.outputs.cache-hit }}" != "true" ]; then
-            echo "⚡ Chưa có cache: Đang cài đặt và biên dịch song song..."
+            echo "⚡ Cài đặt và biên dịch lần đầu..."
             npm install -g tapflow
 
             IOS_AGENT_BIN=$(find "$HOME/.npm-global" -type d -path "*/@tapflowio/ios-agent/bin" | head -n 1)
             mkdir -p /tmp/tapflow-swift /tmp/tapflow-bin-cache
             
-            # Tải source Swift
             curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/screencapture-helper.swift -o /tmp/tapflow-swift/screencapture-helper.swift
             curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/touch-helper.swift -o /tmp/tapflow-swift/touch-helper.swift
             curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/keyboard-helper.swift -o /tmp/tapflow-swift/keyboard-helper.swift
             curl -sL https://raw.githubusercontent.com/jo-duchan/tapflow/main/packages/ios-agent/src/rotation-helper.swift -o /tmp/tapflow-swift/rotation-helper.swift
 
-            # Biên dịch song song tận dụng đa nhân CPU
             swiftc /tmp/tapflow-swift/screencapture-helper.swift -o "$IOS_AGENT_BIN/screencapture-helper" -framework CoreVideo -framework ImageIO -framework VideoToolbox -framework CoreMedia &
             swiftc /tmp/tapflow-swift/touch-helper.swift -o "$IOS_AGENT_BIN/touch-helper" &
             swiftc /tmp/tapflow-swift/keyboard-helper.swift -o "$IOS_AGENT_BIN/keyboard-helper" &
@@ -88,31 +125,29 @@ jobs:
 
             chmod +x "$IOS_AGENT_BIN"/*
             cp -r "$IOS_AGENT_BIN"/* /tmp/tapflow-bin-cache/
-            echo "✓ Đã biên dịch xong và lưu vào Cache!"
+            echo "✓ Đã lưu cache thành công!"
           else
-            echo "🚀 Đã tìm thấy Cache! Khôi phục trong 2 giây..."
+            echo "🚀 Khôi phục binary từ Cache trong 2 giây..."
             IOS_AGENT_BIN=$(find "$HOME/.npm-global" -type d -path "*/@tapflowio/ios-agent/bin" | head -n 1)
             cp -r /tmp/tapflow-bin-cache/* "$IOS_AGENT_BIN/"
             chmod +x "$IOS_AGENT_BIN"/*
-            echo "✓ Khôi phục thành công!"
+            echo "✓ Khôi phục xong!"
           fi
 
-      # 6. Chạy Agent
+      # 6. Khởi chạy Tapflow iOS Agent
       - name: Chạy Tapflow iOS Agent
         env:
           TAPFLOW_RELAY_URL: ${{ secrets.TAPFLOW_RELAY_URL }}
           TAPFLOW_AGENT_TOKEN: ${{ secrets.TAPFLOW_AGENT_TOKEN }}
           NODE_OPTIONS: "--require /tmp/patch.cjs"
           PATH: "/Users/runner/.npm-global/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-          TAPFLOW_MAX_SIZE: "1280"
-          TAPFLOW_IOS_H264_BITRATE: "8000000"
+          TAPFLOW_MAX_SIZE: "960"
+          TAPFLOW_IOS_H264_BITRATE: "2500000"
+          TAPFLOW_WS_BACKPRESSURE_BYTES: "4194304"
         run: |
           echo "Đang kết nối iOS Agent ($SELECTED_DEVICE) tới $TAPFLOW_RELAY_URL ..."
           tapflow agent start --relay "$TAPFLOW_RELAY_URL" --token "$TAPFLOW_AGENT_TOKEN" --platform ios --device "$SELECTED_DEVICE" &
 
           MINUTES=${{ github.event.inputs.duration_minutes || 120 }}
-          echo "========================================================================"
-          echo "🎉 IPHONE SẴN SÀNG! Bạn hãy thao tác vuốt trên web để thấy FPS tăng lên 30."
-          echo "⏱️ Phiên làm việc sẽ giữ trong $MINUTES phút..."
-          echo "========================================================================"
+          echo "Phiên làm việc sẵn sàng trong $MINUTES phút..."
           sleep $((MINUTES * 60))
