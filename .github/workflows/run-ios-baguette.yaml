@@ -19,7 +19,7 @@ jobs:
           path: /usr/local/bin/baguette
           key: baguette-bin-v1-macos15
 
-      # 2. Cấu hình Xcode
+      # 2. Cấu hình Xcode 16 mới nhất
       - name: Cấu hình Xcode
         if: steps.cache-baguette.outputs.cache-hit != 'true'
         run: |
@@ -30,7 +30,7 @@ jobs:
           fi
           xcodebuild -version
 
-      # 3. Build Baguette & Tắt Strict Concurrency
+      # 3. Build Baguette & Vá nốt lỗi cuối cùng
       - name: Build Baguette
         if: steps.cache-baguette.outputs.cache-hit != 'true'
         run: |
@@ -38,24 +38,26 @@ jobs:
           git clone https://github.com/tddworks/baguette.git /tmp/baguette-src
           cd /tmp/baguette-src
 
-          # 1. Hạ Swift tools version về 6.0
+          # 1. Hạ tools version về 6.0
           sed -i '' 's/swift-tools-version: 6.1/swift-tools-version: 6.0/g' Package.swift || true
           
-          # 2. Vá lỗi DeviceStudioLighting
+          # 2. Vá lỗi Concurrency ở DeviceStudioLighting.swift
           sed -i '' 's/private static let environment/nonisolated(unsafe) private static let environment/g' Sources/Baguette/Infrastructure/Render/DeviceStudioLighting.swift || true
 
-          # 3. Bơm cờ -strict-concurrency=minimal vào build.sh để bỏ qua toàn bộ lỗi Data-Race của Swift 6
-          sed -i '' 's/swift build/swift build -Xswiftc -strict-concurrency=minimal/g' build.sh || true
+          # 3. Vá lỗi Data-Race cuối cùng ở RealityKitDeviceScene.swift
+          sed -i '' 's/try self.renderFrame(surface)/nonisolated(unsafe) let safeSurface = surface; try self.renderFrame(safeSurface)/g' Sources/Baguette/Infrastructure/Render/RealityKitDeviceScene.swift || true
 
           echo "Bắt đầu build..."
           chmod +x ./build.sh
           ./build.sh
 
-          # Đưa binary ra PATH
+          # Đưa binary ra PATH hệ thống
           sudo cp .build/arm64-apple-macosx/release/baguette /usr/local/bin/baguette || sudo cp .build/release/baguette /usr/local/bin/baguette
           sudo chmod +x /usr/local/bin/baguette
           
-          echo "✅ BUILD HOÀN TẤT THÀNH CÔNG!"
+          echo "========================================================================"
+          echo "✅ BUILD BAGUETTE HOÀN TẤT 100%!"
+          echo "========================================================================"
           baguette --help
 
       # 4. Cài đặt Cloudflare Tunnel
@@ -75,6 +77,7 @@ jobs:
       # 6. Chạy Baguette Serve & Mở Tunnel
       - name: Chạy Baguette Serve & Tunnel
         run: |
+          # Khởi chạy Baguette server
           nohup baguette serve --port 8421 --allowed-hosts '*.trycloudflare.com' > /tmp/baguette.log 2>&1 &
 
           echo "Đang đợi Baguette server sẵn sàng..."
@@ -89,7 +92,7 @@ jobs:
           # Mở Cloudflare Tunnel
           cloudflared tunnel --url http://localhost:8421 --no-autoupdate > cf.log 2>&1 &
 
-          # Đợi 8 giây lấy link
+          # Đợi 8 giây lấy link Cloudflare
           sleep 8
           CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
 
@@ -104,6 +107,6 @@ jobs:
       # 7. Giữ phiên làm việc
       - name: Giữ phiên làm việc
         run: |
-          echo "Runner đang mở. Xem log trực tiếp:"
+          echo "Runner đang mở. Xem log chi tiết bên dưới:"
           tail -f /tmp/baguette.log &
           sleep 7200
