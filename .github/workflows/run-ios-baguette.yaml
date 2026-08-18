@@ -11,7 +11,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # 1. Kiểm tra Cache (Nếu đã có binary từ lần chạy trước thì dùng luôn)
+      # 1. Kiểm tra Cache binary
       - name: Phục hồi Baguette từ Cache
         id: cache-baguette
         uses: actions/cache@v4
@@ -19,17 +19,18 @@ jobs:
           path: /usr/local/bin/baguette
           key: baguette-bin-v1-macos15
 
-      # 2. Chọn Xcode mới nhất
+      # 2. Cấu hình Xcode
       - name: Cấu hình Xcode
         if: steps.cache-baguette.outputs.cache-hit != 'true'
         run: |
           LATEST_XCODE=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n 1)
           if [ -n "$LATEST_XCODE" ]; then
+            echo "Using: $LATEST_XCODE"
             sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
           fi
           xcodebuild -version
 
-      # 3. Build & Vá lỗi Swift Concurrency (Chỉ chạy khi chưa có Cache)
+      # 3. Build Baguette & Tắt Strict Concurrency
       - name: Build Baguette
         if: steps.cache-baguette.outputs.cache-hit != 'true'
         run: |
@@ -37,18 +38,27 @@ jobs:
           git clone https://github.com/tddworks/baguette.git /tmp/baguette-src
           cd /tmp/baguette-src
 
-          # Vá lỗi Swift 6 Strict Concurrency ở file DeviceStudioLighting.swift
+          # 1. Hạ Swift tools version về 6.0
+          sed -i '' 's/swift-tools-version: 6.1/swift-tools-version: 6.0/g' Package.swift || true
+          
+          # 2. Vá lỗi DeviceStudioLighting
           sed -i '' 's/private static let environment/nonisolated(unsafe) private static let environment/g' Sources/Baguette/Infrastructure/Render/DeviceStudioLighting.swift || true
+
+          # 3. Bơm cờ -strict-concurrency=minimal vào build.sh để bỏ qua toàn bộ lỗi Data-Race của Swift 6
+          sed -i '' 's/swift build/swift build -Xswiftc -strict-concurrency=minimal/g' build.sh || true
 
           echo "Bắt đầu build..."
           chmod +x ./build.sh
           ./build.sh
 
-          # Đưa binary ra PATH và cấp quyền
+          # Đưa binary ra PATH
           sudo cp .build/arm64-apple-macosx/release/baguette /usr/local/bin/baguette || sudo cp .build/release/baguette /usr/local/bin/baguette
           sudo chmod +x /usr/local/bin/baguette
+          
+          echo "✅ BUILD HOÀN TẤT THÀNH CÔNG!"
+          baguette --help
 
-      # 4. Tải Cloudflare Tunnel
+      # 4. Cài đặt Cloudflare Tunnel
       - name: Cài đặt Cloudflare Tunnel
         run: |
           curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz | tar -xz
@@ -65,7 +75,6 @@ jobs:
       # 6. Chạy Baguette Serve & Mở Tunnel
       - name: Chạy Baguette Serve & Tunnel
         run: |
-          # Khởi chạy Baguette
           nohup baguette serve --port 8421 --allowed-hosts '*.trycloudflare.com' > /tmp/baguette.log 2>&1 &
 
           echo "Đang đợi Baguette server sẵn sàng..."
@@ -80,7 +89,7 @@ jobs:
           # Mở Cloudflare Tunnel
           cloudflared tunnel --url http://localhost:8421 --no-autoupdate > cf.log 2>&1 &
 
-          # Đợi lấy link Cloudflare
+          # Đợi 8 giây lấy link
           sleep 8
           CF_URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' cf.log | head -n 1)
 
@@ -95,6 +104,6 @@ jobs:
       # 7. Giữ phiên làm việc
       - name: Giữ phiên làm việc
         run: |
-          echo "Runner đang chạy. Log chi tiết Baguette:"
+          echo "Runner đang mở. Xem log trực tiếp:"
           tail -f /tmp/baguette.log &
           sleep 7200
