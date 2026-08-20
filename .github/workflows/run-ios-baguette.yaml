@@ -2,6 +2,12 @@ name: Remote iOS Simulator with Baguette
 
 on:
   workflow_dispatch:
+    inputs:
+      duration:
+        description: '⏱️ Thời gian giữ phiên (Tính bằng PHÚT - Mặc định 120p, tối đa 360p):'
+        required: false
+        default: '120'
+        type: string
 
 jobs:
   run-baguette:
@@ -39,6 +45,9 @@ jobs:
           echo "UDID=$UDID" >> $GITHUB_ENV
           echo "Booting Device UDID: $UDID"
           xcrun simctl boot "$UDID" || true
+          
+          # VÔ HIỆU HÓA HOÀN TOÀN AUTO-LOCK VÀ SLEEP CỦA MÁY ẢO
+          xcrun simctl spawn "$UDID" defaults write com.apple.springboard idleTimerDisabled -bool true
 
       # -------------------------------------------------------------
       # 4. TẠO TRANG WEB UPLOAD & CÀI ĐẶT APP BẰNG FLASK (PORT 8422)
@@ -196,8 +205,21 @@ jobs:
           echo "========================================================================"
           echo ""
 
-      # 6. Giữ phiên làm việc
+      # -------------------------------------------------------------
+      # 6. GIỮ PHIÊN LÀM VIỆC THEO THỜI GIAN NGƯỜI DÙNG NHẬP
+      # -------------------------------------------------------------
       - name: Giữ phiên làm việc
         run: |
+          # Lấy số phút người dùng nhập (nếu để trống thì tự lấy mặc định 120 phút)
+          MINUTES="${{ github.event.inputs.duration || '120' }}"
+          
+          # Đổi phút sang giây
+          SECONDS=$((MINUTES * 60))
+          
+          echo "========================================================================"
+          echo "⏳ PHIÊN MÁY ẢO SẼ HOẠT ĐỘNG TRONG: $MINUTES PHÚT ($SECONDS GIÂY)"
+          echo "💡 Bạn có thể bấm 'Cancel workflow run' trên GitHub để tắt bất cứ lúc nào."
+          echo "========================================================================"
+          
           tail -f /tmp/baguette.log &
-          sleep 7200
+          sleep $SECONDS
