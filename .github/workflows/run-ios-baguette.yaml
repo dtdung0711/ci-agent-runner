@@ -3,8 +3,16 @@ name: Remote iOS Simulator with Baguette
 on:
   workflow_dispatch:
     inputs:
+      device_type:
+        description: '📱 Chọn loại thiết bị (iPhone hoặc iPad):'
+        required: true
+        default: 'iPad'
+        type: choice
+        options:
+          - iPad
+          - iPhone
       duration:
-        description: '⏱️ Thời gian giữ phiên (Tính bằng PHÚT - Mặc định 120p, tối đa 360p):'
+        description: '⏱️ Thời gian giữ phiên (Phút):'
         required: false
         default: '120'
         type: string
@@ -38,10 +46,20 @@ jobs:
           # Cài Flask cho Web Uploader
           pip3 install --break-system-packages flask || pip3 install flask
 
-      # 3. Khởi động iOS Simulator Headless
-      - name: Khởi động iOS Simulator
+      # 3. Khởi động iOS Simulator Headless (iPhone hoặc iPad tùy chọn)
+      - name: Khởi động Simulator
         run: |
-          UDID=$(xcrun simctl list devices available | grep -m 1 "iPhone" | awk -F '[()]' '{print $2}')
+          DEVICE="${{ github.event.inputs.device_type || 'iPad' }}"
+          echo "Tìm thiết bị loại: $DEVICE"
+          
+          # Lấy UDID của thiết bị đầu tiên khớp với lựa chọn (iPad hoặc iPhone)
+          UDID=$(xcrun simctl list devices available | grep -m 1 "$DEVICE" | awk -F '[()]' '{print $2}')
+          
+          if [ -z "$UDID" ]; then
+            echo "❌ Không tìm thấy thiết bị $DEVICE nào khả dụng!"
+            exit 1
+          fi
+
           echo "UDID=$UDID" >> $GITHUB_ENV
           echo "Booting Device UDID: $UDID"
           xcrun simctl boot "$UDID" || true
