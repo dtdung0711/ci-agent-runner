@@ -53,13 +53,14 @@ jobs:
           echo "Tìm thiết bị loại: $DEVICE"
           
           # Lấy UDID của thiết bị đầu tiên khớp với lựa chọn (iPad hoặc iPhone)
-          UDID=$(xcrun simctl list devices available | grep -m 1 "$DEVICE" | awk -F '[()]' '{print $2}')
+          # DÙNG REGEX BẮT ĐÚNG MÃ UUID (Bỏ qua các chữ như M4, M2, v.v.)
+          UDID=$(xcrun simctl list devices available | grep "$DEVICE" | grep -E -o -m 1 '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}')
           
           if [ -z "$UDID" ]; then
             echo "❌ Không tìm thấy thiết bị $DEVICE nào khả dụng!"
             exit 1
           fi
-
+          
           echo "UDID=$UDID" >> $GITHUB_ENV
           echo "Booting Device UDID: $UDID"
           xcrun simctl boot "$UDID" || true
